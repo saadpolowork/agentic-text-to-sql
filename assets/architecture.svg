@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="330" viewBox="0 0 980 330" font-family="-apple-system,'Segoe UI',Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7a8699"/>
+    </marker>
+  </defs>
+  <rect width="980" height="330" rx="14" fill="#0f1522"/>
+  <text x="30" y="42" font-size="21" font-weight="700" fill="#e8edf5">Agentic Text-to-SQL — 3-stage pipeline</text>
+  <text x="30" y="66" font-size="13" fill="#9aa7ba">Every assumption is proven against the live database before the answer is written · 59.7% EX on BIRD-SQL</text>
+
+  <!-- Input -->
+  <rect x="30" y="110" width="150" height="120" rx="10" fill="#1a2233" stroke="#324158"/>
+  <text x="105" y="140" font-size="13" font-weight="700" fill="#cfd9e8" text-anchor="middle">Question</text>
+  <text x="105" y="160" font-size="11.5" fill="#9aa7ba" text-anchor="middle">natural language</text>
+  <text x="105" y="186" font-size="13" font-weight="700" fill="#cfd9e8" text-anchor="middle">Schema</text>
+  <text x="105" y="206" font-size="11.5" fill="#9aa7ba" text-anchor="middle">tables · PK/FK</text>
+
+  <!-- Stage 1 -->
+  <rect x="220" y="96" width="200" height="148" rx="10" fill="#14263b" stroke="#2e6db5"/>
+  <text x="320" y="124" font-size="14" font-weight="700" fill="#7fb8f0" text-anchor="middle">Stage 1 · Explorer</text>
+  <text x="320" y="144" font-size="11.5" fill="#b8c6d9" text-anchor="middle">Qwen3-32B</text>
+  <text x="232" y="170" font-size="11.5" fill="#cfd9e8">• assumptions before data</text>
+  <text x="232" y="189" font-size="11.5" fill="#cfd9e8">• 15+ exploratory queries</text>
+  <text x="232" y="208" font-size="11.5" fill="#cfd9e8">• DISTINCT / join / null proofs</text>
+  <text x="232" y="227" font-size="11.5" fill="#cfd9e8">• executed on live SQLite</text>
+
+  <!-- Stage 2 -->
+  <rect x="460" y="96" width="200" height="148" rx="10" fill="#16203b" stroke="#5b62c9"/>
+  <text x="560" y="124" font-size="14" font-weight="700" fill="#a3a8f0" text-anchor="middle">Stage 2 · Reviewer</text>
+  <text x="560" y="144" font-size="11.5" fill="#b8c6d9" text-anchor="middle">Qwen3-32B</text>
+  <text x="472" y="170" font-size="11.5" fill="#cfd9e8">• audits every assumption</text>
+  <text x="472" y="189" font-size="11.5" fill="#cfd9e8">• [CONFIRMED] [CONTRADICTED]</text>
+  <text x="472" y="208" font-size="11.5" fill="#cfd9e8">• [OPEN-VALUE] resolution</text>
+  <text x="472" y="227" font-size="11.5" fill="#cfd9e8">• confirmation queries, executed</text>
+
+  <!-- Stage 3 -->
+  <rect x="700" y="96" width="200" height="148" rx="10" fill="#251d33" stroke="#9a5bc9"/>
+  <text x="800" y="124" font-size="14" font-weight="700" fill="#cf9df0" text-anchor="middle">Stage 3 · Director</text>
+  <text x="800" y="144" font-size="11.5" fill="#b8c6d9" text-anchor="middle">Llama-3.3-70B</text>
+  <text x="712" y="170" font-size="11.5" fill="#cfd9e8">• findings-only context, no SQL</text>
+  <text x="712" y="189" font-size="11.5" fill="#cfd9e8">• 5 candidates, C1–C5 sweep</text>
+  <text x="712" y="208" font-size="11.5" fill="#cfd9e8">• proof-by-cases interpretations</text>
+  <text x="712" y="227" font-size="11.5" fill="#cfd9e8">• all executed → answer chosen</text>
+
+  <!-- arrows -->
+  <line x1="180" y1="170" x2="214" y2="170" stroke="#7a8699" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="420" y1="170" x2="454" y2="170" stroke="#7a8699" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="660" y1="170" x2="694" y2="170" stroke="#7a8699" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- database feedback -->
+  <rect x="330" y="272" width="320" height="36" rx="8" fill="#101a29" stroke="#324158"/>
+  <text x="490" y="295" font-size="12.5" fill="#8fd0a8" text-anchor="middle">SQLite database — every query runs for real, results feed forward</text>
+  <path d="M320,244 L320,290 L326,290" stroke="#3a4a63" stroke-width="1.6" fill="none"/>
+  <path d="M560,244 L560,268" stroke="#3a4a63" stroke-width="1.6" fill="none"/>
+  <path d="M800,244 L800,290 L654,290" stroke="#3a4a63" stroke-width="1.6" fill="none"/>
+</svg>
