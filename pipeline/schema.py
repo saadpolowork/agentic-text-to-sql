@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 schema.py — Profiled schema builder (BIRD tables.json format → annotated text schema).
 """

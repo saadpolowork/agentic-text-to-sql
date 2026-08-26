@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 runner.py — Orchestrates the 3-stage agentic pipeline for a single question.
 

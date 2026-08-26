@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 parsing.py — Extraction of queries, candidates, and phase sections from LLM output.
 

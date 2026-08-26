@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 llm.py — Groq inference (OpenAI-compatible chat completions) with 429 backoff.
 """

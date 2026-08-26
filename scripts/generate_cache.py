@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 generate_cache.py — Pre-run the pipeline on the curated sample questions and save
 full traces to cached_traces/ for the app's instant Example gallery.

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 executor.py — Safe SQLite execution for exploratory queries and candidates.
 
