@@ -1,0 +1,1520 @@
+{
+ "db_id": "california_schools",
+ "question": "What is the ratio in percentage of Santa Clara County schools that are locally funded compared to all other types of charter school funding?",
+ "evidence": "Ratio in percentage = (count(locally funded schools in Santa Clara) / count(all funding type schools in Santa Clara) * 100%",
+ "gold_sql": "SELECT CAST(SUM(CASE WHEN FundingType = 'Locally funded' THEN 1 ELSE 0 END) AS REAL) * 100 / SUM(CASE WHEN FundingType != 'Locally funded' THEN 1 ELSE 0 END) FROM schools WHERE County = 'Santa Clara' AND Charter = 1",
+ "models": {
+  "stage1": "google/gemma-4-31b",
+  "stage2": "google/gemma-4-31b",
+  "stage3": "google/gemma-4-31b"
+ },
+ "stages": {
+  "stage1": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Today is your first day at a new company.\n\nNormally this work takes three days. You do not have three days. You have to do it all today.\n\nHere is how you think through a new client question:\n\nPHASE 1 — Before you look at anything:\nYou read the question and evidence first, with the schema face-down. You write out every question\nyou would want answered and every assumption you are making. You are a philosopher — you think in\nwho, what, when, where, by whom, for whom. You think in counter-proofs. What would make an\nassumption wrong? What encoding or edge case breaks the obvious reading? Stating a wrong assumption\nexplicitly is more honest and useful than a vague non-answer.\n\nPHASE 2 — You look at the schema:\nThe data dictionary arrives: table names, column names, types, primary keys, and foreign key\nrelationships. You do NOT get statistics — no min, max, null counts, or sample values. That is\nwhat Phase 3 is for. Some of your Phase 1 assumptions will be confirmed. Some will be wrong. Some\nnew questions will appear that you could not have thought of without seeing the actual column names.\nYou update every assumption. You tag each question.\n\nPHASE 3 — You write exploratory SQL:\nYou have database access. You are excited and thorough. You know that being new means you earn trust\nby being rigorous, not reckless. You have two phases of thinking behind you — now you turn that into\nexploratory SQL. Write at least 15 queries. The system will reject outputs with fewer than 5 —\nthose records will be skipped entirely and the question will not advance to the next stage.\n\nYou have six proof obligations:\n\n1. EXISTENCE LEMMA (DISTINCT probes):\n   For every categorical column you plan to filter on, run SELECT DISTINCT col FROM table LIMIT 20.\n   This is a direct proof of existence — it proves which values actually live in the database.\n   Without this proof, any filter using that column is an ungrounded conjecture. The system will\n   treat unproven filter values as errors in Stage 2.\n\n2. CONNECTIVITY LEMMA (join verification):\n   Before writing any multi-table JOIN, prove the join path works. Run a query on each side of the\n   join key: SELECT DISTINCT join_col FROM table_a LIMIT 5 and SELECT DISTINCT join_col FROM table_b\n   LIMIT 5. If both return values and they overlap, the join is proven. If either returns zero rows\n   or different types, the join is disproven — do not use it.\n\n3. AXIOMATIC NEUTRALITY (contrapositive for filters):\n   Do not add status, active/inactive, or any other filter unless the question explicitly mentions\n   it. Assume the contrapositive: if the question does not mention a constraint, its absence is\n   correct until you prove otherwise. Run at least one query WITHOUT any assumed filter to establish\n   the unfiltered baseline.\n\n4. COLUMN SUITABILITY PROOFS (null-count & scope):\n   Before using any column for aggregation (COUNT, AVG, SUM, MAX, MIN), run a null-count query:\n   SELECT COUNT(*) - COUNT(col) as nulls, COUNT(*) as total FROM table.\n   If nulls exceed 50% of total, that column is statistically unsuitable as a primary metric —\n   look for alternatives. After identifying your primary filter value, run TWO scope queries:\n   (a) one query WITHOUT the filter — note the total row count (unfiltered universe).\n   (b) one query WITH the filter — note the filtered row count.\n   Compare: if filtered count equals unfiltered count, the filter is a no-op and likely wrong.\n   If filtered count is zero, the value does not exist. Both indicate a scope mismatch.\n\n5. ANNOTATION LEMMA (semantic mapping of opaque columns):\n   If the schema contains column names that are short codes, single letters, abbreviations, or\n   numeric identifiers (e.g., col1, X, stat, code_a), you cannot assume their meaning from the\n   name alone. For every such opaque column that could be relevant to the question, run:\n   SELECT DISTINCT col FROM table LIMIT 20\n   Then annotate each with its apparent meaning based on the values returned. Format your comment:\n   \"ANNOTATION LEMMA: col_name appears to be [description] (values: val1, val2, val3)\"\n   This is a direct proof of semantic identity — without it, any use of an opaque column is an\n   ungrounded assumption about what the column contains.\n\n6. JOIN VERIFICATION (non-key joins):\n   The schema marks primary keys [PK] and foreign keys [FK]. If you plan to join two tables on\n   a column that is NOT marked as a PK or FK, you must prove the join is valid by querying both\n   sides: SELECT DISTINCT col FROM table_a LIMIT 5 and SELECT DISTINCT col FROM table_b LIMIT 5.\n   If the values do not overlap, the join is invalid. PK/FK joins are pre-verified by the schema.\n\nAdditional rules:\n- Multi-part question decomposition: Before writing any Phase 1 assumptions, read the\n  question and ask: does it contain multiple distinct sub-questions? A multi-part question\n  typically uses connectors like \"and\", \"also\", \"as well as\", or asks for two different\n  pieces of information in one sentence (e.g. \"What is X? What is Y for Z?\"). If yes,\n  list each sub-question separately in Phase 1 and treat them as independent proof obligations.\n  Your Phase 3 queries must cover every part — a query that only answers one part of a\n  multi-part question is incomplete. The final SQL must return all parts in a single query\n  (using JOIN, subquery, or multiple SELECT expressions as appropriate).\n- Cover all tables that could relate to the question, not just the most obvious one.\n- SELECT only the columns needed for each specific check — no extra \"context\" columns.\n- Identifier Precision: Determine whether the question asks for a primary identifier\n  (ID, code, number) or a descriptive label (name, title, description). If both columns exist\n  side by side in the same table, run a DISTINCT query on each. Your Phase 1 assumptions must\n  explicitly state which column type the question wants. This prevents the Director from\n  guessing at the SELECT column later.\n- Each query has exactly one SQL comment (-- ...) that is a single complete sentence explaining\n  why this specific piece of information matters for answering the client question.\n- Always use LIMIT. Check both heads and tails for any table you are uncertain about.\n- Do NOT write the final answer query — that comes after you see what these return.\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\nA numbered list. For each item: state the question, then immediately state your current assumption.\nAssumptions can be wrong — that is expected and useful.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, explaining why these are the\nright questions to ask.\n\n## PHASE 2 — SCHEMA REVIEW\nA numbered list. For each item from Phase 1, mark it with exactly one tag:\n  [CONFIRMED] — the profile supports your Phase 1 assumption\n  [REVISED]   — you need to update your assumption based on what you see\n  [NEW]       — a question that did not exist in Phase 1, raised by the schema or statistics\n  [DROPPED]   — this question is no longer relevant given what the profile shows\n\nAfter the tag, give a brief one-sentence reason.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, describing what the profile\nrevealed and what still requires direct database investigation.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\nA numbered list of SQL queries. Minimum 15 queries.\n\nSQLite rules — this is non-negotiable:\n- The database engine is SQLite. Write only SQL that SQLite supports.\n- Column names that contain spaces, parentheses, or special characters MUST be\n  wrapped in double quotes. Example: \"County Name\", \"Free Meal Count (K-12)\".\n  Never write an unquoted column name that contains a space.\n- Do not use window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.).\n- Always use LIMIT.\n- Do NOT write the final answer query.\n\nOutput format for Phase 3 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the department_type column.\n   SELECT DISTINCT department_type FROM departments LIMIT 20;\n\n2. -- SCOPE CHECK: Establish the time range covered by the data.\n   SELECT MIN(hire_date), MAX(hire_date) FROM employees LIMIT 1;\n\n3. -- NULL-COUNT PROOF: Verify salary column suitability for aggregation.\n   SELECT COUNT(*) - COUNT(salary) as nulls, COUNT(*) as total FROM employees LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between employees and departments.\n   SELECT DISTINCT department_id FROM employees LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Other side of the join.\n   SELECT DISTINCT id FROM departments LIMIT 5;\n\n6. -- ANNOTATION LEMMA: Determine what opaque column 'dept_code' actually contains.\n   SELECT DISTINCT dept_code FROM departments LIMIT 20;\n\n7. -- JOIN VERIFICATION: Verify non-key join between employees.role and roles.role_name.\n   SELECT DISTINCT role FROM employees LIMIT 5;\n\n8. -- SCOPE PROOF: Unfiltered universe count for the target table.\n   SELECT COUNT(*) FROM employees LIMIT 1;\n\n9. -- SCOPE PROOF: Filtered count — verify filter narrows to expected scope.\n   SELECT COUNT(*) FROM employees WHERE department_type = 'Engineering' LIMIT 1;",
+   "user_prompt": "A new client question just arrived on your desk.\n\nQuestion: What is the ratio in percentage of Santa Clara County schools that are locally funded compared to all other types of charter school funding?\nEvidence: Ratio in percentage = (count(locally funded schools in Santa Clara) / count(all funding type schools in Santa Clara) * 100%\n\nDatabase: california_schools\n\nSchema (table names, column names, types, primary keys, foreign keys):\n\nTABLE: frpm\n  CDSCode                          text          [PK] [FK → schools.CDSCode]\n  Academic Year                    text      \n  County Code                      text      \n  District Code                    integer   \n  School Code                      text      \n  County Name                      text      \n  District Name                    text      \n  School Name                      text      \n  District Type                    text      \n  School Type                      text      \n  Educational Option Type          text      \n  NSLP Provision Status            text      \n  Charter School (Y/N)             integer   \n  Charter School Number            text      \n  Charter Funding Type             text      \n  IRC                              integer   \n  Low Grade                        text      \n  High Grade                       text      \n  Enrollment (K-12)                real      \n  Free Meal Count (K-12)           real      \n  Percent (%) Eligible Free (K-12) real      \n  FRPM Count (K-12)                real      \n  Percent (%) Eligible FRPM (K-12) real      \n  Enrollment (Ages 5-17)           real      \n  Free Meal Count (Ages 5-17)      real      \n  Percent (%) Eligible Free (Ages 5-17) real      \n  FRPM Count (Ages 5-17)           real      \n  Percent (%) Eligible FRPM (Ages 5-17) real      \n  2013-14 CALPADS Fall 1 Certification Status integer   \n\nTABLE: satscores\n  cds                              text          [PK] [FK → schools.CDSCode]\n  rtype                            text      \n  sname                            text      \n  dname                            text      \n  cname                            text      \n  enroll12                         integer   \n  NumTstTakr                       integer   \n  AvgScrRead                       integer   \n  AvgScrMath                       integer   \n  AvgScrWrite                      integer   \n  NumGE1500                        integer   \n\nTABLE: schools\n  CDSCode                          text          [PK]\n  NCESDist                         text      \n  NCESSchool                       text      \n  StatusType                       text      \n  County                           text      \n  District                         text      \n  School                           text      \n  Street                           text      \n  StreetAbr                        text      \n  City                             text      \n  Zip                              text      \n  State                            text      \n  MailStreet                       text      \n  MailStrAbr                       text      \n  MailCity                         text      \n  MailZip                          text      \n  MailState                        text      \n  Phone                            text      \n  Ext                              text      \n  Website                          text      \n  OpenDate                         date      \n  ClosedDate                       date      \n  Charter                          integer   \n  CharterNum                       text      \n  FundingType                      text      \n  DOC                              text      \n  DOCType                          text      \n  SOC                              text      \n  SOCType                          text      \n  EdOpsCode                        text      \n  EdOpsName                        text      \n  EILCode                          text      \n  EILName                          text      \n  GSoffered                        text      \n  GSserved                         text      \n  Virtual                          text      \n  Magnet                           integer   \n  Latitude                         real      \n  Longitude                        real      \n  AdmFName1                        text      \n  AdmLName1                        text      \n  AdmEmail1                        text      \n  AdmFName2                        text      \n  AdmLName2                        text      \n  AdmEmail2                        text      \n  AdmFName3                        text      \n  AdmLName3                        text      \n  AdmEmail3                        text      \n  LastUpdate                       date      \n\n\nWork through all three phases now.",
+   "response": "## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\n\n1. What is the exact string used to identify \"Santa Clara County\" in the database? Assumption: It is stored as 'Santa Clara'.\n2. Which table should be the primary source for funding and county information? Assumption: The `schools` table is the master record, but `frpm` may contain more specific charter funding details.\n3. What is the exact value representing \"locally funded\" schools? Assumption: It will be a string like 'Local' or 'Locally Funded' in either `FundingType` or `Charter Funding Type`.\n4. Does \"all other types of charter school funding\" imply that the denominator should only include schools identified as charters? Assumption: Yes, the ratio is specifically about charter school funding types within Santa Clara County.\n5. Which column identifies if a school is a charter school? Assumption: In `schools`, it is the `Charter` column (likely 1 for yes), and in `frpm`, it is `Charter School (Y/N)`.\n6. Does the question require a descriptive label or an ID for the schools during intermediate steps? Assumption: The final output is a ratio, so only counts are needed, not specific identifiers.\n\nREASONING\nThe request asks for a percentage ratio based on funding types in a specific county.\nI must determine if \"locally funded\" refers to a specific category within charter schools or a general school attribute.\nIdentifying the correct table is critical because both `schools` and `frpm` contain overlapping geographic and funding data.\nI need to verify the exact string literals for 'Santa Clara' and 'Locally Funded' to avoid empty result sets.\nThe evidence formula clarifies that the denominator is all schools with a charter funding type in that county.\n\n## PHASE 2 — SCHEMA REVIEW\n\n1. [CONFIRMED] The `schools` table has both `County` and `FundingType`, supporting its use as a primary source.\n2. [REVISED] Both `schools` and `frpm` have county and funding columns; I must check which one is more populated for charter-specific data.\n3. [CONFIRMED] The `FundingType` column in `schools` and `Charter Funding Type` in `frpm` are the likely locations for \"locally funded\" values.\n4. [CONFIRMED] Both tables have a charter indicator (`Charter` in `schools`, `Charter School (Y/N)` in `frpm`), allowing me to isolate charter schools.\n5. [NEW] I need to check if `FundingType` and `Charter Funding Type` are the same thing or if one is a subset of the other.\n6. [CONFIRMED] No descriptive labels are needed as the output is a single numeric percentage.\n\nREASONING\nThe schema reveals redundant data across `schools` and `frpm` regarding county and charter status.\nI see that `FundingType` exists in `schools`, while `Charter Funding Type` exists in `frpm`.\nIt is unclear if these columns contain the same set of values or different levels of granularity.\nThe presence of `CDSCode` as a primary key in both tables suggests they can be joined for verification.\nI must now prove which column contains the \"locally funded\" string and verify the count of charter schools in Santa Clara.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\n\n1. -- EXISTENCE PROOF: Confirm the exact naming convention for Santa Clara County in the schools table.\n   SELECT DISTINCT County FROM schools LIMIT 20;\n\n2. -- EXISTENCE PROOF: Confirm the exact naming convention for Santa Clara County in the frpm table.\n   SELECT DISTINCT \"County Name\" FROM frpm LIMIT 20;\n\n3. -- EXISTENCE PROOF: Identify all possible values for funding types to find the \"locally funded\" string.\n   SELECT DISTINCT FundingType FROM schools LIMIT 20;\n\n4. -- EXISTENCE PROOF: Identify all possible values for charter funding types in the frpm table.\n   SELECT DISTINCT \"Charter Funding Type\" FROM frpm LIMIT 20;\n\n5. -- COLUMN SUITABILITY PROOF: Check for nulls in the schools FundingType column to see if it is a reliable metric.\n   SELECT COUNT(*) - COUNT(FundingType) as nulls, COUNT(*) as total FROM schools LIMIT 1;\n\n6. -- COLUMN SUITABILITY PROOF: Check for nulls in the frpm Charter Funding Type column.\n   SELECT COUNT(*) - COUNT(\"Charter Funding Type\") as nulls, COUNT(*) as total FROM frpm LIMIT 1;\n\n7. -- CONNECTIVITY LEMMA: Verify the join key exists and has values in the schools table.\n   SELECT DISTINCT CDSCode FROM schools LIMIT 5;\n\n8. -- CONNECTIVITY LEMMA: Verify the join key exists and has values in the frpm table.\n   SELECT DISTINCT CDSCode FROM frpm LIMIT 5;\n\n9. -- AXIOMATIC NEUTRALITY: Establish a baseline count of all schools regardless of filters.\n   SELECT COUNT(*) FROM schools LIMIT 1;\n\n10. -- SCOPE PROOF: Determine the total number of schools in Santa Clara County to establish the universe.\n    SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' LIMIT 1;\n\n11. -- SCOPE PROOF: Determine the total number of schools in Santa Clara County using the frpm table for comparison.\n    SELECT COUNT(*) FROM frpm WHERE \"County Name\" = 'Santa Clara' LIMIT 1;\n\n12. -- EXISTENCE PROOF: Verify how charter status is encoded in the schools table.\n    SELECT DISTINCT Charter FROM schools LIMIT 20;\n\n13. -- EXISTENCE PROOF: Verify how charter status is encoded in the frpm table.\n    SELECT DISTINCT \"Charter School (Y/N)\" FROM frpm LIMIT 20;\n\n14. -- SCOPE PROOF: Count all charter schools in Santa Clara to verify the denominator's potential size.\n    SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND Charter = 1 LIMIT 1;\n\n15. -- ANNOTATION LEMMA: Check if any numeric codes are used in FundingType that need mapping.\n    SELECT DISTINCT FundingType FROM schools WHERE FundingType GLOB '[0-9]*' LIMIT 20;",
+   "phase1": "1. What is the exact string used to identify \"Santa Clara County\" in the database? Assumption: It is stored as 'Santa Clara'.\n2. Which table should be the primary source for funding and county information? Assumption: The `schools` table is the master record, but `frpm` may contain more specific charter funding details.\n3. What is the exact value representing \"locally funded\" schools? Assumption: It will be a string like 'Local' or 'Locally Funded' in either `FundingType` or `Charter Funding Type`.\n4. Does \"all other types of charter school funding\" imply that the denominator should only include schools identified as charters? Assumption: Yes, the ratio is specifically about charter school funding types within Santa Clara County.\n5. Which column identifies if a school is a charter school? Assumption: In `schools`, it is the `Charter` column (likely 1 for yes), and in `frpm`, it is `Charter School (Y/N)`.\n6. Does the question require a descriptive label or an ID for the schools during intermediate steps? Assumption: The final output is a ratio, so only counts are needed, not specific identifiers.\n\nREASONING\nThe request asks for a percentage ratio based on funding types in a specific county.\nI must determine if \"locally funded\" refers to a specific category within charter schools or a general school attribute.\nIdentifying the correct table is critical because both `schools` and `frpm` contain overlapping geographic and funding data.\nI need to verify the exact string literals for 'Santa Clara' and 'Locally Funded' to avoid empty result sets.\nThe evidence formula clarifies that the denominator is all schools with a charter funding type in that county.",
+   "phase2": "1. [CONFIRMED] The `schools` table has both `County` and `FundingType`, supporting its use as a primary source.\n2. [REVISED] Both `schools` and `frpm` have county and funding columns; I must check which one is more populated for charter-specific data.\n3. [CONFIRMED] The `FundingType` column in `schools` and `Charter Funding Type` in `frpm` are the likely locations for \"locally funded\" values.\n4. [CONFIRMED] Both tables have a charter indicator (`Charter` in `schools`, `Charter School (Y/N)` in `frpm`), allowing me to isolate charter schools.\n5. [NEW] I need to check if `FundingType` and `Charter Funding Type` are the same thing or if one is a subset of the other.\n6. [CONFIRMED] No descriptive labels are needed as the output is a single numeric percentage.\n\nREASONING\nThe schema reveals redundant data across `schools` and `frpm` regarding county and charter status.\nI see that `FundingType` exists in `schools`, while `Charter Funding Type` exists in `frpm`.\nIt is unclear if these columns contain the same set of values or different levels of granularity.\nThe presence of `CDSCode` as a primary key in both tables suggests they can be joined for verification.\nI must now prove which column contains the \"locally funded\" string and verify the count of charter schools in Santa Clara.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "EXISTENCE PROOF: Confirm the exact naming convention for Santa Clara County in the schools table.",
+     "sql": "SELECT DISTINCT County FROM schools LIMIT 20",
+     "status": "success",
+     "columns": [
+      "County"
+     ],
+     "head": [
+      [
+       "Alameda"
+      ],
+      [
+       "Alpine"
+      ],
+      [
+       "Amador"
+      ],
+      [
+       "Butte"
+      ],
+      [
+       "Calaveras"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "EXISTENCE PROOF: Confirm the exact naming convention for Santa Clara County in the frpm table.",
+     "sql": "SELECT DISTINCT \"County Name\" FROM frpm LIMIT 20",
+     "status": "success",
+     "columns": [
+      "County Name"
+     ],
+     "head": [
+      [
+       "Alameda"
+      ],
+      [
+       "Alpine"
+      ],
+      [
+       "Amador"
+      ],
+      [
+       "Butte"
+      ],
+      [
+       "Calaveras"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "EXISTENCE PROOF: Identify all possible values for funding types to find the \"locally funded\" string.",
+     "sql": "SELECT DISTINCT FundingType FROM schools LIMIT 20",
+     "status": "success",
+     "columns": [
+      "FundingType"
+     ],
+     "head": [
+      [
+       null
+      ],
+      [
+       "Directly funded"
+      ],
+      [
+       "Locally funded"
+      ],
+      [
+       "Not in CS funding model"
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "EXISTENCE PROOF: Identify all possible values for charter funding types in the frpm table.",
+     "sql": "SELECT DISTINCT \"Charter Funding Type\" FROM frpm LIMIT 20",
+     "status": "success",
+     "columns": [
+      "Charter Funding Type"
+     ],
+     "head": [
+      [
+       "Directly funded"
+      ],
+      [
+       null
+      ],
+      [
+       "Locally funded"
+      ],
+      [
+       "Not in CS funding model"
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in the schools FundingType column to see if it is a reliable metric.",
+     "sql": "SELECT COUNT(*) - COUNT(FundingType) as nulls, COUNT(*) as total FROM schools LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       16044,
+       17686
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in the frpm Charter Funding Type column.",
+     "sql": "SELECT COUNT(*) - COUNT(\"Charter Funding Type\") as nulls, COUNT(*) as total FROM frpm LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       8819,
+       9986
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "CONNECTIVITY LEMMA: Verify the join key exists and has values in the schools table.",
+     "sql": "SELECT DISTINCT CDSCode FROM schools LIMIT 5",
+     "status": "success",
+     "columns": [
+      "CDSCode"
+     ],
+     "head": [
+      [
+       "01100170000000"
+      ],
+      [
+       "01100170109835"
+      ],
+      [
+       "01100170112607"
+      ],
+      [
+       "01100170118489"
+      ],
+      [
+       "01100170123968"
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "CONNECTIVITY LEMMA: Verify the join key exists and has values in the frpm table.",
+     "sql": "SELECT DISTINCT CDSCode FROM frpm LIMIT 5",
+     "status": "success",
+     "columns": [
+      "CDSCode"
+     ],
+     "head": [
+      [
+       "01100170109835"
+      ],
+      [
+       "01100170112607"
+      ],
+      [
+       "01100170118489"
+      ],
+      [
+       "01100170123968"
+      ],
+      [
+       "01100170124172"
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "AXIOMATIC NEUTRALITY: Establish a baseline count of all schools regardless of filters.",
+     "sql": "SELECT COUNT(*) FROM schools LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       17686
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "SCOPE PROOF: Determine the total number of schools in Santa Clara County to establish the universe.",
+     "sql": "SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       780
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "SCOPE PROOF: Determine the total number of schools in Santa Clara County using the frpm table for comparison.",
+     "sql": "SELECT COUNT(*) FROM frpm WHERE \"County Name\" = 'Santa Clara' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       409
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "EXISTENCE PROOF: Verify how charter status is encoded in the schools table.",
+     "sql": "SELECT DISTINCT Charter FROM schools LIMIT 20",
+     "status": "success",
+     "columns": [
+      "Charter"
+     ],
+     "head": [
+      [
+       null
+      ],
+      [
+       1
+      ],
+      [
+       0
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "EXISTENCE PROOF: Verify how charter status is encoded in the frpm table.",
+     "sql": "SELECT DISTINCT \"Charter School (Y/N)\" FROM frpm LIMIT 20",
+     "status": "success",
+     "columns": [
+      "Charter School (Y/N)"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       0
+      ],
+      [
+       null
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "SCOPE PROOF: Count all charter schools in Santa Clara to verify the denominator's potential size.",
+     "sql": "SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND Charter = 1 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       82
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "ANNOTATION LEMMA: Check if any numeric codes are used in FundingType that need mapping.",
+     "sql": "SELECT DISTINCT FundingType FROM schools WHERE FundingType GLOB '[0-9]*' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "FundingType"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage2": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Yesterday you worked through a client question in three phases:\nPhase 1 — questions and assumptions written before seeing the schema.\nPhase 2 — schema review, assumptions updated against column profiles.\nPhase 3 — exploratory SQL queries written to investigate the data.\n\nNow the queries have run. You have the results in front of you.\n\nYour job today is three phases:\n\nPHASE 4 — REVISED ASSUMPTIONS\nGo through every assumption you made in Phases 1 and 2. For each one, state what the query results show.\nTag each item with exactly one of:\n  [CONFIRMED]    — a PASSED query directly proves this assumption. Cite the query number.\n  [REVISED]      — results partially support but require adjustment. State what changed and why.\n  [CONTRADICTED] — a query returned zero rows, an error, or unexpected data that disproves this\n                   hypothesis. This is not a failure — it is a proof by contradiction. State clearly\n                   what was disproven and what it implies.\n  [OPEN-VALUE]   — an assumption involves a string filter value that was NEVER confirmed with a\n                   SELECT DISTINCT query. This is an open conjecture — the Director cannot use it.\n                   Phase 5 MUST include a DISTINCT query to resolve it.\n  [WRONG-TABLE]  — query results suggest the data does not live in the assumed table (column doesn't\n                   exist, zero rows where many were expected, data type mismatch). The hypothesis\n                   about which table to use is disproven. Phase 5 must explore the alternative.\n  [LIKE-VS-ENUM] — the analyst used LIKE or a substring match on a name/description column, but\n                   the schema may contain a separate coded or enum column for the same concept\n                   (e.g., filtering by name string when a type_code column exists). Phase 5 MUST\n                   include a DISTINCT query on the potential enum column to check if it provides\n                   a cleaner, exact-match filter.\n\nAfter the tag, write one sentence citing which query result led to this conclusion.\n\nContrapositive test for filters: For each filter in your hypothesis, apply the contrapositive test:\n\"If the question does not explicitly mention this constraint, then it should NOT appear in the WHERE\nclause.\" If Stage 1 added a filter that the question never asked for (e.g. a status filter, an\nactive/inactive check), tag it [CONTRADICTED] with reason: \"contrapositive — question does not\nmention this constraint.\"\n\nPHASE 4b — HYPOTHESIS REVIEW\nWrite a short paragraph (3–5 sentences) answering:\n  1. Does your original hypothesis about how to answer this question still hold?\n     State clearly: YES it holds, NO it needs to change, or PARTIALLY — explain what changed.\n  2. Did the query results reveal anything you did not expect? If so, what?\n  3. What is your updated hypothesis for the final SQL approach?\n\nYour updated hypothesis must name:\n  - The exact table name(s) as they appear in the schema\n  - The exact column name(s) — quoted if they contain spaces\n  - The exact confirmed string value (if a filter is needed) — proven by a DISTINCT query\n  - The exact join path (if tables must be joined) — proven by connectivity lemma queries\n  Vague hypotheses like \"filter by type\" or \"join on the ID column\" are rejected.\n  If any piece is uncertain, tag it [OPEN-VALUE] and resolve it in Phase 5.\n\nPHASE 5 — CONFIRMATION QUERIES\nWrite at least 15 new SQL queries. The system will reject outputs with fewer than 5 — those records\nwill be skipped entirely. These are not exploratory — they are targeted at the gaps, surprises, and\nrevised assumptions from Phases 4 and 4b.\n\nMandatory resolution: Every [OPEN-VALUE] and [WRONG-TABLE] from Phase 4 MUST have a corresponding\nresolution query in Phase 5. An unresolved conjecture is a gap that the Director will fill with\nguesswork — and guesswork is how we get wrong answers.\n  - For [OPEN-VALUE]: run SELECT DISTINCT col FROM table LIMIT 20 to prove the exact value.\n  - For [WRONG-TABLE]: run exploratory queries against the alternative table.\n  - For [LIKE-VS-ENUM]: run SELECT DISTINCT enum_col FROM table LIMIT 20. If the enum column\n    provides exact values that match the question's intent, recommend it over the LIKE filter\n    in your Phase 4b hypothesis update.\n\nDo not repeat queries from Phase 3. Each query must address something new.\n\nSQLite rules — same as before, non-negotiable:\n- Column names with spaces or special characters MUST be double-quoted: \"County Name\"\n- No window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.)\n- Always use LIMIT\n- Do NOT write the final answer query\n\nOutput format for Phase 5 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- RESOLVE [OPEN-VALUE]: Prove what distinct values exist in order_status.\n   SELECT DISTINCT order_status FROM orders LIMIT 20;\n\n2. -- RESOLVE [WRONG-TABLE]: Check if revenue data lives in invoices instead of orders.\n   SELECT COUNT(*), MIN(total), MAX(total) FROM invoices LIMIT 1;\n\n3. -- CONTRAPOSITIVE TEST: Verify results without the assumed 'active' filter.\n   SELECT COUNT(*) FROM customers LIMIT 1;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check if department_code is a cleaner filter than department_name.\n   SELECT DISTINCT department_code, department_name FROM departments LIMIT 20;\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 4 — REVISED ASSUMPTIONS\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\n## PHASE 5 — CONFIRMATION QUERIES",
+   "user_prompt": "The query results are in. Time to review.\n\nQuestion: What is the ratio in percentage of Santa Clara County schools that are locally funded compared to all other types of charter school funding?\nEvidence: Ratio in percentage = (count(locally funded schools in Santa Clara) / count(all funding type schools in Santa Clara) * 100%\n\nDatabase: california_schools\n\nSchema (same as before — table names, column names, types, join keys):\n\nTABLE: frpm\n  CDSCode                          text          [PK] [FK → schools.CDSCode]\n  Academic Year                    text      \n  County Code                      text      \n  District Code                    integer   \n  School Code                      text      \n  County Name                      text      \n  District Name                    text      \n  School Name                      text      \n  District Type                    text      \n  School Type                      text      \n  Educational Option Type          text      \n  NSLP Provision Status            text      \n  Charter School (Y/N)             integer   \n  Charter School Number            text      \n  Charter Funding Type             text      \n  IRC                              integer   \n  Low Grade                        text      \n  High Grade                       text      \n  Enrollment (K-12)                real      \n  Free Meal Count (K-12)           real      \n  Percent (%) Eligible Free (K-12) real      \n  FRPM Count (K-12)                real      \n  Percent (%) Eligible FRPM (K-12) real      \n  Enrollment (Ages 5-17)           real      \n  Free Meal Count (Ages 5-17)      real      \n  Percent (%) Eligible Free (Ages 5-17) real      \n  FRPM Count (Ages 5-17)           real      \n  Percent (%) Eligible FRPM (Ages 5-17) real      \n  2013-14 CALPADS Fall 1 Certification Status integer   \n\nTABLE: satscores\n  cds                              text          [PK] [FK → schools.CDSCode]\n  rtype                            text      \n  sname                            text      \n  dname                            text      \n  cname                            text      \n  enroll12                         integer   \n  NumTstTakr                       integer   \n  AvgScrRead                       integer   \n  AvgScrMath                       integer   \n  AvgScrWrite                      integer   \n  NumGE1500                        integer   \n\nTABLE: schools\n  CDSCode                          text          [PK]\n  NCESDist                         text      \n  NCESSchool                       text      \n  StatusType                       text      \n  County                           text      \n  District                         text      \n  School                           text      \n  Street                           text      \n  StreetAbr                        text      \n  City                             text      \n  Zip                              text      \n  State                            text      \n  MailStreet                       text      \n  MailStrAbr                       text      \n  MailCity                         text      \n  MailZip                          text      \n  MailState                        text      \n  Phone                            text      \n  Ext                              text      \n  Website                          text      \n  OpenDate                         date      \n  ClosedDate                       date      \n  Charter                          integer   \n  CharterNum                       text      \n  FundingType                      text      \n  DOC                              text      \n  DOCType                          text      \n  SOC                              text      \n  SOCType                          text      \n  EdOpsCode                        text      \n  EdOpsName                        text      \n  EILCode                          text      \n  EILName                          text      \n  GSoffered                        text      \n  GSserved                         text      \n  Virtual                          text      \n  Magnet                           integer   \n  Latitude                         real      \n  Longitude                        real      \n  AdmFName1                        text      \n  AdmLName1                        text      \n  AdmEmail1                        text      \n  AdmFName2                        text      \n  AdmLName2                        text      \n  AdmEmail2                        text      \n  AdmFName3                        text      \n  AdmLName3                        text      \n  AdmEmail3                        text      \n  LastUpdate                       date      \n\n\n---\n\nYour Phase 1 — Two Semantic Hypotheses:\n\n1. What is the exact string used to identify \"Santa Clara County\" in the database? Assumption: It is stored as 'Santa Clara'.\n2. Which table should be the primary source for funding and county information? Assumption: The `schools` table is the master record, but `frpm` may contain more specific charter funding details.\n3. What is the exact value representing \"locally funded\" schools? Assumption: It will be a string like 'Local' or 'Locally Funded' in either `FundingType` or `Charter Funding Type`.\n4. Does \"all other types of charter school funding\" imply that the denominator should only include schools identified as charters? Assumption: Yes, the ratio is specifically about charter school funding types within Santa Clara County.\n5. Which column identifies if a school is a charter school? Assumption: In `schools`, it is the `Charter` column (likely 1 for yes), and in `frpm`, it is `Charter School (Y/N)`.\n6. Does the question require a descriptive label or an ID for the schools during intermediate steps? Assumption: The final output is a ratio, so only counts are needed, not specific identifiers.\n\nREASONING\nThe request asks for a percentage ratio based on funding types in a specific county.\nI must determine if \"locally funded\" refers to a specific category within charter schools or a general school attribute.\nIdentifying the correct table is critical because both `schools` and `frpm` contain overlapping geographic and funding data.\nI need to verify the exact string literals for 'Santa Clara' and 'Locally Funded' to avoid empty result sets.\nThe evidence formula clarifies that the denominator is all schools with a charter funding type in that county.\n\n---\n\nYour Phase 2 — Schema Deep Dive:\n\n1. [CONFIRMED] The `schools` table has both `County` and `FundingType`, supporting its use as a primary source.\n2. [REVISED] Both `schools` and `frpm` have county and funding columns; I must check which one is more populated for charter-specific data.\n3. [CONFIRMED] The `FundingType` column in `schools` and `Charter Funding Type` in `frpm` are the likely locations for \"locally funded\" values.\n4. [CONFIRMED] Both tables have a charter indicator (`Charter` in `schools`, `Charter School (Y/N)` in `frpm`), allowing me to isolate charter schools.\n5. [NEW] I need to check if `FundingType` and `Charter Funding Type` are the same thing or if one is a subset of the other.\n6. [CONFIRMED] No descriptive labels are needed as the output is a single numeric percentage.\n\nREASONING\nThe schema reveals redundant data across `schools` and `frpm` regarding county and charter status.\nI see that `FundingType` exists in `schools`, while `Charter Funding Type` exists in `frpm`.\nIt is unclear if these columns contain the same set of values or different levels of granularity.\nThe presence of `CDSCode` as a primary key in both tables suggests they can be joined for verification.\nI must now prove which column contains the \"locally funded\" string and verify the count of charter schools in Santa Clara.\n\n---\n\nPhase 3 — Exploratory Query Results:\n\n1. -- EXISTENCE PROOF: Confirm the exact naming convention for Santa Clara County in the schools table.\n   SELECT DISTINCT County FROM schools LIMIT 20\n   Columns: County\n   ['Alameda']\n   ['Alpine']\n   ['Amador']\n   ... (20 rows total)\n\n2. -- EXISTENCE PROOF: Confirm the exact naming convention for Santa Clara County in the frpm table.\n   SELECT DISTINCT \"County Name\" FROM frpm LIMIT 20\n   Columns: County Name\n   ['Alameda']\n   ['Alpine']\n   ['Amador']\n   ... (20 rows total)\n\n3. -- EXISTENCE PROOF: Identify all possible values for funding types to find the \"locally funded\" string.\n   SELECT DISTINCT FundingType FROM schools LIMIT 20\n   Columns: FundingType\n   [None]\n   ['Directly funded']\n   ['Locally funded']\n   ... (4 rows total)\n\n4. -- EXISTENCE PROOF: Identify all possible values for charter funding types in the frpm table.\n   SELECT DISTINCT \"Charter Funding Type\" FROM frpm LIMIT 20\n   Columns: Charter Funding Type\n   ['Directly funded']\n   [None]\n   ['Locally funded']\n   ... (4 rows total)\n\n5. -- COLUMN SUITABILITY PROOF: Check for nulls in the schools FundingType column to see if it is a reliable metric.\n   SELECT COUNT(*) - COUNT(FundingType) as nulls, COUNT(*) as total FROM schools LIMIT 1\n   Columns: nulls, total\n   [16044, 17686]\n\n6. -- COLUMN SUITABILITY PROOF: Check for nulls in the frpm Charter Funding Type column.\n   SELECT COUNT(*) - COUNT(\"Charter Funding Type\") as nulls, COUNT(*) as total FROM frpm LIMIT 1\n   Columns: nulls, total\n   [8819, 9986]\n\n7. -- CONNECTIVITY LEMMA: Verify the join key exists and has values in the schools table.\n   SELECT DISTINCT CDSCode FROM schools LIMIT 5\n   Columns: CDSCode\n   ['01100170000000']\n   ['01100170109835']\n   ['01100170112607']\n   ... (5 rows total)\n\n8. -- CONNECTIVITY LEMMA: Verify the join key exists and has values in the frpm table.\n   SELECT DISTINCT CDSCode FROM frpm LIMIT 5\n   Columns: CDSCode\n   ['01100170109835']\n   ['01100170112607']\n   ['01100170118489']\n   ... (5 rows total)\n\n9. -- AXIOMATIC NEUTRALITY: Establish a baseline count of all schools regardless of filters.\n   SELECT COUNT(*) FROM schools LIMIT 1\n   Columns: COUNT(*)\n   [17686]\n\n10. -- SCOPE PROOF: Determine the total number of schools in Santa Clara County to establish the universe.\n   SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' LIMIT 1\n   Columns: COUNT(*)\n   [780]\n\n11. -- SCOPE PROOF: Determine the total number of schools in Santa Clara County using the frpm table for comparison.\n   SELECT COUNT(*) FROM frpm WHERE \"County Name\" = 'Santa Clara' LIMIT 1\n   Columns: COUNT(*)\n   [409]\n\n12. -- EXISTENCE PROOF: Verify how charter status is encoded in the schools table.\n   SELECT DISTINCT Charter FROM schools LIMIT 20\n   Columns: Charter\n   [None]\n   [1]\n   [0]\n\n13. -- EXISTENCE PROOF: Verify how charter status is encoded in the frpm table.\n   SELECT DISTINCT \"Charter School (Y/N)\" FROM frpm LIMIT 20\n   Columns: Charter School (Y/N)\n   [1]\n   [0]\n   [None]\n\n14. -- SCOPE PROOF: Count all charter schools in Santa Clara to verify the denominator's potential size.\n   SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND Charter = 1 LIMIT 1\n   Columns: COUNT(*)\n   [82]\n\n15. -- ANNOTATION LEMMA: Check if any numeric codes are used in FundingType that need mapping.\n   SELECT DISTINCT FundingType FROM schools WHERE FundingType GLOB '[0-9]*' LIMIT 20\n   Columns: FundingType\n   (no rows returned)\n\n---\n\nWork through Phase 4 and Phase 5 now.",
+   "response": "## PHASE 4 — REVISED ASSUMPTIONS\n\n1. [CONFIRMED] Santa Clara County is stored as 'Santa Clara'. Query 10 returned 780 results using this exact string.\n2. [REVISED] The `schools` table is the primary source for county and funding data because it contains significantly more records for Santa Clara than the `frpm` table. Query 10 (780 rows) vs Query 11 (409 rows).\n3. [CONFIRMED] The exact string for locally funded schools is 'Locally funded'. Query 3 and Query 4 both explicitly list this value in their results.\n4. [CONFIRMED] The denominator must be restricted to charter schools as the question specifies \"compared to all other types of charter school funding.\" Query 14 confirms a subset of 82 charter schools exists in Santa Clara.\n5. [CONFIRMED] Charter status is encoded as an integer (likely 1 for yes) in both `schools` and `frpm`. Query 12 and Query 13 confirm the presence of values 0 and 1.\n6. [CONFIRMED] Only counts are needed for the final ratio calculation, not school identifiers. The evidence formula confirms a simple count-based percentage.\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\nYES, the original hypothesis holds, but with a critical refinement regarding the data source. While both `schools` and `frpm` contain the necessary columns, the `schools` table is more comprehensive for this specific county. The query results revealed a significant discrepancy in record counts between the two tables (780 vs 409), making `schools` the only reliable master list. My updated hypothesis is to use the `schools` table exclusively, filtering by `County = 'Santa Clara'`, `Charter = 1`, and using the `FundingType` column for the numerator ('Locally funded') and denominator (all non-null funding types for charters).\n\nUpdated Hypothesis:\n- Table: `schools`\n- Columns: `County`, `Charter`, `FundingType`\n- Confirmed Values: `'Santa Clara'`, `1` (for Charter), `'Locally funded'`\n- Join Path: No join required as all fields exist in the `schools` table.\n\n## PHASE 5 — CONFIRMATION QUERIES\n\n1. -- RESOLVE [LIKE-VS-ENUM]: Ensure 'Locally funded' is the only variation of local funding and not a substring of other values.\n   SELECT DISTINCT FundingType FROM schools WHERE FundingType LIKE '%Local%' LIMIT 20;\n\n2. -- CONTRAPOSITIVE TEST: Verify if non-charter schools are ever marked as 'Locally funded', which would necessitate a strict Charter = 1 filter.\n   SELECT COUNT(*) FROM schools WHERE Charter = 0 AND FundingType = 'Locally funded' LIMIT 1;\n\n3. -- RESOLVE [OPEN-VALUE]: Confirm that no other variations of Santa Clara exist (e.g., 'Santa Clara County').\n   SELECT DISTINCT County FROM schools WHERE County LIKE '%Santa Clara%' LIMIT 20;\n\n4. -- DATA INTEGRITY: Check for any charter schools in Santa Clara that have a NULL FundingType, as they would be excluded from the ratio.\n   SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND Charter = 1 AND FundingType IS NULL LIMIT 1;\n\n5. -- RESOLVE [LIKE-VS-ENUM]: Check if there are other funding types that could be interpreted as \"local\" (e.g., Municipal).\n   SELECT DISTINCT FundingType FROM schools LIMIT 20;\n\n6. -- DATA INTEGRITY: Verify the total count of charter schools in Santa Clara specifically with a defined FundingType for the denominator.\n   SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND Charter = 1 AND FundingType IS NOT NULL LIMIT 1;\n\n7. -- DATA INTEGRITY: Verify the total count of locally funded charter schools in Santa Clara for the numerator.\n   SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND Charter = 1 AND FundingType = 'Locally funded' LIMIT 1;\n\n8. -- RESOLVE [LIKE-VS-ENUM]: Check if there is a separate coded column for funding that would be more precise than the string FundingType.\n   SELECT DISTINCT FundingType, EdOpsCode FROM schools LIMIT 20;\n\n9. -- DATA INTEGRITY: Ensure Charter status only contains 0, 1, or NULL to avoid unexpected categories.\n   SELECT DISTINCT Charter FROM schools LIMIT 20;\n\n10. -- CROSS-TABLE VALIDATION: Check if a specific school has different funding types in `schools` vs `frpm`.\n    SELECT s.CDSCode, s.FundingType, f.\"Charter Funding Type\" FROM schools s JOIN frpm f ON s.CDSCode = f.CDSCode WHERE s.FundingType != f.\"Charter Funding Type\" LIMIT 20;\n\n11. -- DATA INTEGRITY: Check for leading or trailing spaces in the 'Santa Clara' string.\n    SELECT County FROM schools WHERE County LIKE '%Santa Clara%' AND County != 'Santa Clara' LIMIT 20;\n\n12. -- CONTRAPOSITIVE TEST: Verify total count of all funding types for charters in Santa Clara to ensure denominator is not zero.\n    SELECT COUNT(DISTINCT FundingType) FROM schools WHERE County = 'Santa Clara' AND Charter = 1 LIMIT 1;\n\n13. -- DATA INTEGRITY: Check if any school has both Charter=0 and a value in FundingType that matches charter-specific strings.\n    SELECT COUNT(*) FROM schools WHERE Charter = 0 AND FundingType IN ('Locally funded', 'Directly funded') LIMIT 1;\n\n14. -- RESOLVE [LIKE-VS-ENUM]: Verify if \"Charter\" is always 1 when FundingType is populated.\n    SELECT COUNT(*) FROM schools WHERE FundingType IS NOT NULL AND Charter != 1 LIMIT 1;\n\n15. -- DATA INTEGRITY: Confirm the total number of distinct counties to ensure 'Santa Clara' isn't a duplicate or sub-region.\n    SELECT COUNT(DISTINCT County) FROM schools LIMIT 1;",
+   "phase4": "1. [CONFIRMED] Santa Clara County is stored as 'Santa Clara'. Query 10 returned 780 results using this exact string.\n2. [REVISED] The `schools` table is the primary source for county and funding data because it contains significantly more records for Santa Clara than the `frpm` table. Query 10 (780 rows) vs Query 11 (409 rows).\n3. [CONFIRMED] The exact string for locally funded schools is 'Locally funded'. Query 3 and Query 4 both explicitly list this value in their results.\n4. [CONFIRMED] The denominator must be restricted to charter schools as the question specifies \"compared to all other types of charter school funding.\" Query 14 confirms a subset of 82 charter schools exists in Santa Clara.\n5. [CONFIRMED] Charter status is encoded as an integer (likely 1 for yes) in both `schools` and `frpm`. Query 12 and Query 13 confirm the presence of values 0 and 1.\n6. [CONFIRMED] Only counts are needed for the final ratio calculation, not school identifiers. The evidence formula confirms a simple count-based percentage.",
+   "phase4b": "YES, the original hypothesis holds, but with a critical refinement regarding the data source. While both `schools` and `frpm` contain the necessary columns, the `schools` table is more comprehensive for this specific county. The query results revealed a significant discrepancy in record counts between the two tables (780 vs 409), making `schools` the only reliable master list. My updated hypothesis is to use the `schools` table exclusively, filtering by `County = 'Santa Clara'`, `Charter = 1`, and using the `FundingType` column for the numerator ('Locally funded') and denominator (all non-null funding types for charters).\n\nUpdated Hypothesis:\n- Table: `schools`\n- Columns: `County`, `Charter`, `FundingType`\n- Confirmed Values: `'Santa Clara'`, `1` (for Charter), `'Locally funded'`\n- Join Path: No join required as all fields exist in the `schools` table.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Ensure 'Locally funded' is the only variation of local funding and not a substring of other values.",
+     "sql": "SELECT DISTINCT FundingType FROM schools WHERE FundingType LIKE '%Local%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "FundingType"
+     ],
+     "head": [
+      [
+       "Locally funded"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "CONTRAPOSITIVE TEST: Verify if non-charter schools are ever marked as 'Locally funded', which would necessitate a strict Charter = 1 filter.",
+     "sql": "SELECT COUNT(*) FROM schools WHERE Charter = 0 AND FundingType = 'Locally funded' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       34
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "RESOLVE [OPEN-VALUE]: Confirm that no other variations of Santa Clara exist (e.g., 'Santa Clara County').",
+     "sql": "SELECT DISTINCT County FROM schools WHERE County LIKE '%Santa Clara%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "County"
+     ],
+     "head": [
+      [
+       "Santa Clara"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "DATA INTEGRITY: Check for any charter schools in Santa Clara that have a NULL FundingType, as they would be excluded from the ratio.",
+     "sql": "SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND Charter = 1 AND FundingType IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       2
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Check if there are other funding types that could be interpreted as \"local\" (e.g., Municipal).",
+     "sql": "SELECT DISTINCT FundingType FROM schools LIMIT 20",
+     "status": "success",
+     "columns": [
+      "FundingType"
+     ],
+     "head": [
+      [
+       null
+      ],
+      [
+       "Directly funded"
+      ],
+      [
+       "Locally funded"
+      ],
+      [
+       "Not in CS funding model"
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "DATA INTEGRITY: Verify the total count of charter schools in Santa Clara specifically with a defined FundingType for the denominator.",
+     "sql": "SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND Charter = 1 AND FundingType IS NOT NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       80
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "DATA INTEGRITY: Verify the total count of locally funded charter schools in Santa Clara for the numerator.",
+     "sql": "SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND Charter = 1 AND FundingType = 'Locally funded' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       20
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Check if there is a separate coded column for funding that would be more precise than the string FundingType.",
+     "sql": "SELECT DISTINCT FundingType, EdOpsCode FROM schools LIMIT 20",
+     "status": "success",
+     "columns": [
+      "FundingType",
+      "EdOpsCode"
+     ],
+     "head": [
+      [
+       null,
+       null
+      ],
+      [
+       "Directly funded",
+       "TRAD"
+      ],
+      [
+       null,
+       "JUV"
+      ],
+      [
+       null,
+       "COMM"
+      ],
+      [
+       null,
+       "OPP"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "DATA INTEGRITY: Ensure Charter status only contains 0, 1, or NULL to avoid unexpected categories.",
+     "sql": "SELECT DISTINCT Charter FROM schools LIMIT 20",
+     "status": "success",
+     "columns": [
+      "Charter"
+     ],
+     "head": [
+      [
+       null
+      ],
+      [
+       1
+      ],
+      [
+       0
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "CROSS-TABLE VALIDATION: Check if a specific school has different funding types in `schools` vs `frpm`.",
+     "sql": "SELECT s.CDSCode, s.FundingType, f.\"Charter Funding Type\" FROM schools s JOIN frpm f ON s.CDSCode = f.CDSCode WHERE s.FundingType != f.\"Charter Funding Type\" LIMIT 20",
+     "status": "success",
+     "columns": [
+      "CDSCode",
+      "FundingType",
+      "Charter Funding Type"
+     ],
+     "head": [
+      [
+       "04615316112585",
+       "Directly funded",
+       "Locally funded"
+      ],
+      [
+       "04615316112999",
+       "Directly funded",
+       "Locally funded"
+      ],
+      [
+       "09100900930131",
+       "Locally funded",
+       "Not in CS funding model"
+      ],
+      [
+       "19648570125377",
+       "Directly funded",
+       "Locally funded"
+      ],
+      [
+       "20756060125021",
+       "Locally funded",
+       "Directly funded"
+      ]
+     ],
+     "row_count": 19,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "DATA INTEGRITY: Check for leading or trailing spaces in the 'Santa Clara' string.",
+     "sql": "SELECT County FROM schools WHERE County LIKE '%Santa Clara%' AND County != 'Santa Clara' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "County"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "CONTRAPOSITIVE TEST: Verify total count of all funding types for charters in Santa Clara to ensure denominator is not zero.",
+     "sql": "SELECT COUNT(DISTINCT FundingType) FROM schools WHERE County = 'Santa Clara' AND Charter = 1 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(DISTINCT FundingType)"
+     ],
+     "head": [
+      [
+       2
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "DATA INTEGRITY: Check if any school has both Charter=0 and a value in FundingType that matches charter-specific strings.",
+     "sql": "SELECT COUNT(*) FROM schools WHERE Charter = 0 AND FundingType IN ('Locally funded', 'Directly funded') LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       36
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Verify if \"Charter\" is always 1 when FundingType is populated.",
+     "sql": "SELECT COUNT(*) FROM schools WHERE FundingType IS NOT NULL AND Charter != 1 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       40
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "DATA INTEGRITY: Confirm the total number of distinct counties to ensure 'Santa Clara' isn't a duplicate or sub-region.",
+     "sql": "SELECT COUNT(DISTINCT County) FROM schools LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(DISTINCT County)"
+     ],
+     "head": [
+      [
+       58
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage3": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "\nYou are the director. You are reviewing the work of a junior analyst who investigated a client\nquestion by running SQL queries against the actual database.\n\nYour analyst is good but not infallible. They may have explored the right tables or the wrong ones.\nWhat they give you is raw data from the database — what columns exist, what values appeared, which\njoins worked, which failed. Your job is to use that evidence to write the final SQL.\n\nRules:\n  1. Use the analyst's query results as your evidence base. Column names, table names, join keys,\n     and filter values from PASSED queries are confirmed to exist in the database — use them exactly\n     as they appeared. Queries that FAILED with \"no such column: X\" confirm that X does not exist.\n  2. The analyst may have queried the wrong table or missed a relevant one. Consider all tables\n     the analyst touched, but also re-read the schema to check if a better path exists.\n  3. Write 5 candidates. Each candidate is your best complete answer under a different\n     interpretation of what the question is asking. The interpretations should differ in\n     meaningful ways: which tables to query, which columns to SELECT, which filters to apply,\n     how to aggregate, or what the question fundamentally means.\n\n       C1 — your primary interpretation: the answer you think is most likely correct based on\n             the question text, evidence, and analyst findings. This should be a complete,\n             production-quality query.\n       C2 — second interpretation: a structurally different reading. Perhaps a different table,\n             a different join path, or a different understanding of which column answers the\n             question (e.g., returning an ID instead of a name, or COUNT instead of a list).\n       C3 — third interpretation: another distinct reading. Could differ in aggregation logic,\n             filter scope, or SELECT shape (e.g., including the metric alongside the result).\n       C4 — fourth interpretation: explores a less obvious reading. Different grouping, an\n             additional condition implied by context, or a different column that could answer\n             the same question.\n       C5 — fifth interpretation, most elaborate: if the question could require comparing a\n             value to an aggregate (average, threshold, rank), use Nested Isolation here:\n               Inner query: compute the aggregate (AVG, MAX, COUNT, etc.)\n               Outer query: filter or join against that aggregate result\n             Pattern: SELECT col FROM t WHERE val > (SELECT AVG(val) FROM t)\n             If no aggregate comparison applies, use the most structurally different approach\n             you can justify.\n\n     Each candidate must be a complete, standalone, executable query — not a fragment or\n     simplification. Five variations of the same WHERE clause with minor tweaks is not five\n     interpretations.\n  4. Each candidate must be a complete, standalone, executable SQL query.\n  5. Different interpretations may reasonably differ in SELECT shape. For example, one\n     interpretation might return only COUNT(*), another might return COUNT(*) with the GROUP BY\n     column, and another might return the actual rows. Let each interpretation dictate its own\n     SELECT — do not artificially restrict columns across all five candidates.\n  6. Use LIMIT only when the question asks for a specific number of results (\"top 3\", \"the one\n     with the highest\"). If the question asks for a list without a count, do not use LIMIT.\n  7. You may use window functions (RANK, ROW_NUMBER, etc.) when the question requires ranking\n     within a group or ordering within a partition.\n\n  Proof-by-Cases principle:\n    C1-C5 must represent genuinely different interpretations of the question. If the correct\n    answer exists, at least one interpretation MUST capture it. Each must be structurally\n    distinct — different tables, joins, groupings, SELECT columns, or filter logic.\n\n  Exclusion Principle:\n    Every element in your SQL must be justified by either:\n      (a) the question text explicitly requiring it, or\n      (b) a PASSED query from the analyst's work confirming it exists and is relevant.\n    Do not add columns \"for context\", filters \"for safety\" (IS NOT NULL, status checks),\n    or joins \"just in case\". Unjustified additions are unproven conjectures — they narrow\n    or widen the result set beyond what was asked and cause failures.\n\n  Evidence hierarchy:\n    - PASSED queries with non-zero rows: proven facts. Use the exact column names, table\n      names, and values as they appeared.\n    - FAILED queries (errors): proven non-existence. The column or table does NOT exist\n      in that form. Do not use it.\n    - Zero-row PASSED queries: the filter combination is valid syntax but matches nothing.\n      Consider whether the filter is too restrictive.\n    - [OPEN-VALUE] / [WRONG-TABLE] tags from the analyst: unresolved conjectures. Prefer\n      alternatives that were actually confirmed.\n\nSQLite rules — non-negotiable:\n  - Column names with spaces or special characters MUST be double-quoted: \"Order Date\"\n  - Every query must begin with SELECT. Never use WITH ... AS (CTEs).\n  - Use whatever SQL structure best serves each interpretation: subqueries, window functions,\n    derived tables, or flat SELECT/JOIN/GROUP BY. The only constraint is correctness.\n  - Any query that joins two or more tables MUST assign a short alias to every table\n    (e.g. FROM movies m JOIN ratings r ON m.movie_id = r.movie_id) and MUST qualify every\n    column reference with its alias (e.g. m.movie_title, not just movie_title). Unqualified\n    column references in multi-table queries are ambiguous and will cause runtime errors.\n\nOutput format:\n## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: [what this reading assumes about the question]\nSELECT t1.col FROM t1 JOIN t2 ON t1.id = t2.fk WHERE t1.filter = value\n\n2. -- Second interpretation: [how this differs from C1]\nSELECT t1.id FROM t1 WHERE t1.different_filter = value\n\n3. -- Third interpretation: [what this captures that C1-C2 miss]\nSELECT t1.col, COUNT(*) FROM t1 GROUP BY t1.col\n\n4. -- Fourth interpretation: [alternative approach]\nSELECT t1.col FROM t1 JOIN t3 ON t1.id = t3.fk WHERE t3.filter = value\n\n5. -- Fifth interpretation: [most elaborate or aggregate-comparison approach]\nSELECT t1.col FROM t1 WHERE t1.val > (SELECT AVG(t2.val) FROM t1 t2)\n\nFormat rules:\n  - Numbered 1 through 5 exactly.\n  - Candidate 1 MUST start with \"1. --\" on its own line — never output the first candidate\n    as raw unnumbered SQL.\n  - Comment on same line as the number, starting with --.\n  - SQL starts on the next line, beginning with SELECT.\n  - Blank line between candidates.\n  - No markdown code fences. No bold. No extra headers.\n",
+   "user_prompt": "Question: What is the ratio in percentage of Santa Clara County schools that are locally funded compared to all other types of charter school funding?\nEvidence: Ratio in percentage = (count(locally funded schools in Santa Clara) / count(all funding type schools in Santa Clara) * 100%\n\nDatabase: california_schools\n\n---\nANALYST WORK PRODUCT\n\nStage 1 — What was checked and what was found:\n1. Checked: EXISTENCE PROOF: Confirm the exact naming convention for Santa Clara County in the schools table.\n   Result: County: Alameda\n   (20 rows total)\n\n2. Checked: EXISTENCE PROOF: Confirm the exact naming convention for Santa Clara County in the frpm table.\n   Result: County Name: Alameda\n   (20 rows total)\n\n3. Checked: EXISTENCE PROOF: Identify all possible values for funding types to find the \"locally funded\" string.\n   Result: FundingType: None\n   (4 rows total)\n\n4. Checked: EXISTENCE PROOF: Identify all possible values for charter funding types in the frpm table.\n   Result: Charter Funding Type: Directly funded\n   (4 rows total)\n\n5. Checked: COLUMN SUITABILITY PROOF: Check for nulls in the schools FundingType column to see if it is a reliable metric.\n   Result: nulls: 16044 | total: 17686\n\n6. Checked: COLUMN SUITABILITY PROOF: Check for nulls in the frpm Charter Funding Type column.\n   Result: nulls: 8819 | total: 9986\n\n7. Checked: CONNECTIVITY LEMMA: Verify the join key exists and has values in the schools table.\n   Result: CDSCode: 01100170000000\n   (5 rows total)\n\n8. Checked: CONNECTIVITY LEMMA: Verify the join key exists and has values in the frpm table.\n   Result: CDSCode: 01100170109835\n   (5 rows total)\n\n9. Checked: AXIOMATIC NEUTRALITY: Establish a baseline count of all schools regardless of filters.\n   Result: COUNT(*): 17686\n\n10. Checked: SCOPE PROOF: Determine the total number of schools in Santa Clara County to establish the universe.\n   Result: COUNT(*): 780\n\n11. Checked: SCOPE PROOF: Determine the total number of schools in Santa Clara County using the frpm table for comparison.\n   Result: COUNT(*): 409\n\n12. Checked: EXISTENCE PROOF: Verify how charter status is encoded in the schools table.\n   Result: Charter: None\n   (3 rows total)\n\n13. Checked: EXISTENCE PROOF: Verify how charter status is encoded in the frpm table.\n   Result: Charter School (Y/N): 1\n   (3 rows total)\n\n14. Checked: SCOPE PROOF: Count all charter schools in Santa Clara to verify the denominator's potential size.\n   Result: COUNT(*): 82\n\n15. Checked: ANNOTATION LEMMA: Check if any numeric codes are used in FundingType that need mapping.\n   Result: (no rows returned)\n\n\nStage 2 — Hypothesis verdict (Phase 4):\n1. [CONFIRMED] Santa Clara County is stored as 'Santa Clara'. Query 10 returned 780 results using this exact string.\n2. [REVISED] The `schools` table is the primary source for county and funding data because it contains significantly more records for Santa Clara than the `frpm` table. Query 10 (780 rows) vs Query 11 (409 rows).\n3. [CONFIRMED] The exact string for locally funded schools is 'Locally funded'. Query 3 and Query 4 both explicitly list this value in their results.\n4. [CONFIRMED] The denominator must be restricted to charter schools as the question specifies \"compared to all other types of charter school funding.\" Query 14 confirms a subset of 82 charter schools exists in Santa Clara.\n5. [CONFIRMED] Charter status is encoded as an integer (likely 1 for yes) in both `schools` and `frpm`. Query 12 and Query 13 confirm the presence of values 0 and 1.\n6. [CONFIRMED] Only counts are needed for the final ratio calculation, not school identifiers. The evidence formula confirms a simple count-based percentage.\n\nStage 2 — Winning hypothesis (Phase 4b):\nYES, the original hypothesis holds, but with a critical refinement regarding the data source. While both `schools` and `frpm` contain the necessary columns, the `schools` table is more comprehensive for this specific county. The query results revealed a significant discrepancy in record counts between the two tables (780 vs 409), making `schools` the only reliable master list. My updated hypothesis is to use the `schools` table exclusively, filtering by `County = 'Santa Clara'`, `Charter = 1`, and using the `FundingType` column for the numerator ('Locally funded') and denominator (all non-null funding types for charters).\n\nUpdated Hypothesis:\n- Table: `schools`\n- Columns: `County`, `Charter`, `FundingType`\n- Confirmed Values: `'Santa Clara'`, `1` (for Charter), `'Locally funded'`\n- Join Path: No join required as all fields exist in the `schools` table.\n\nStage 2 — Confirmation checks and what was found:\n1. Checked: RESOLVE [LIKE-VS-ENUM]: Ensure 'Locally funded' is the only variation of local funding and not a substring of other values.\n   Result: FundingType: Locally funded\n\n2. Checked: CONTRAPOSITIVE TEST: Verify if non-charter schools are ever marked as 'Locally funded', which would necessitate a strict Charter = 1 filter.\n   Result: COUNT(*): 34\n\n3. Checked: RESOLVE [OPEN-VALUE]: Confirm that no other variations of Santa Clara exist (e.g., 'Santa Clara County').\n   Result: County: Santa Clara\n\n4. Checked: DATA INTEGRITY: Check for any charter schools in Santa Clara that have a NULL FundingType, as they would be excluded from the ratio.\n   Result: COUNT(*): 2\n\n5. Checked: RESOLVE [LIKE-VS-ENUM]: Check if there are other funding types that could be interpreted as \"local\" (e.g., Municipal).\n   Result: FundingType: None\n   (4 rows total)\n\n6. Checked: DATA INTEGRITY: Verify the total count of charter schools in Santa Clara specifically with a defined FundingType for the denominator.\n   Result: COUNT(*): 80\n\n7. Checked: DATA INTEGRITY: Verify the total count of locally funded charter schools in Santa Clara for the numerator.\n   Result: COUNT(*): 20\n\n8. Checked: RESOLVE [LIKE-VS-ENUM]: Check if there is a separate coded column for funding that would be more precise than the string FundingType.\n   Result: FundingType: None | EdOpsCode: None\n   (20 rows total)\n\n9. Checked: DATA INTEGRITY: Ensure Charter status only contains 0, 1, or NULL to avoid unexpected categories.\n   Result: Charter: None\n   (3 rows total)\n\n10. Checked: CROSS-TABLE VALIDATION: Check if a specific school has different funding types in `schools` vs `frpm`.\n   Result: CDSCode: 04615316112585 | FundingType: Directly funded | Charter Funding Type: Locally funded\n   (19 rows total)\n\n11. Checked: DATA INTEGRITY: Check for leading or trailing spaces in the 'Santa Clara' string.\n   Result: (no rows returned)\n\n12. Checked: CONTRAPOSITIVE TEST: Verify total count of all funding types for charters in Santa Clara to ensure denominator is not zero.\n   Result: COUNT(DISTINCT FundingType): 2\n\n13. Checked: DATA INTEGRITY: Check if any school has both Charter=0 and a value in FundingType that matches charter-specific strings.\n   Result: COUNT(*): 36\n\n14. Checked: RESOLVE [LIKE-VS-ENUM]: Verify if \"Charter\" is always 1 when FundingType is populated.\n   Result: COUNT(*): 40\n\n15. Checked: DATA INTEGRITY: Confirm the total number of distinct counties to ensure 'Santa Clara' isn't a duplicate or sub-region.\n   Result: COUNT(DISTINCT County): 58\n\n\n---\nWrite 5 candidate SQL queries sweeping from the least to the most work required to answer the question.",
+   "response": "## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: Use the schools table and follow the provided evidence formula, calculating the percentage of locally funded charter schools relative to all charter schools in Santa Clara that have a defined funding type.\nSELECT SUM(CASE WHEN s.FundingType = 'Locally funded' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)\nFROM schools s\nWHERE s.County = 'Santa Clara' AND s.Charter = 1 AND s.FundingType IS NOT NULL\n\n2. -- Second interpretation: Use the frpm table instead of the schools table, as it also contains charter funding information and may represent a different administrative dataset.\nSELECT SUM(CASE WHEN f.\"Charter Funding Type\" = 'Locally funded' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)\nFROM frpm f\nWHERE f.\"County Name\" = 'Santa Clara' AND f.\"Charter School (Y/N)\" = 1 AND f.\"Charter Funding Type\" IS NOT NULL\n\n3. -- Third interpretation: Interpret \"compared to all other types\" as a relative ratio between locally funded schools and non-locally funded schools, rather than the total population.\nSELECT SUM(CASE WHEN s.FundingType = 'Locally funded' THEN 1 ELSE 0 END) * 100.0 / SUM(CASE WHEN s.FundingType != 'Locally funded' THEN 1 ELSE 0 END)\nFROM schools s\nWHERE s.County = 'Santa Clara' AND s.Charter = 1 AND s.FundingType IS NOT NULL\n\n4. -- Fourth interpretation: Use all charter schools in Santa Clara as the denominator, regardless of whether their funding type is recorded (including NULLs).\nSELECT SUM(CASE WHEN s.FundingType = 'Locally funded' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)\nFROM schools s\nWHERE s.County = 'Santa Clara' AND s.Charter = 1\n\n5. -- Fifth interpretation: Use Nested Isolation to explicitly calculate the numerator and denominator as separate aggregates before computing the final percentage ratio.\nSELECT (CAST(num.cnt AS FLOAT) / den.cnt) * 100\nFROM (\n    SELECT COUNT(*) AS cnt \n    FROM schools \n    WHERE County = 'Santa Clara' AND Charter = 1 AND FundingType = 'Locally funded'\n) num, \n(\n    SELECT COUNT(*) AS cnt \n    FROM schools \n    WHERE County = 'Santa Clara' AND Charter = 1 AND FundingType IS NOT NULL\n) den",
+   "candidates": [
+    {
+     "n": 1,
+     "comment": "Primary interpretation: Use the schools table and follow the provided evidence formula, calculating the percentage of locally funded charter schools relative to all charter schools in Santa Clara that have a defined funding type.",
+     "sql": "SELECT SUM(CASE WHEN s.FundingType = 'Locally funded' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)\nFROM schools s\nWHERE s.County = 'Santa Clara' AND s.Charter = 1 AND s.FundingType IS NOT NULL",
+     "status": "success",
+     "columns": [
+      "SUM(CASE WHEN s.FundingType = 'Locally funded' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)"
+     ],
+     "rows": [
+      [
+       25.0
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 2,
+     "comment": "Second interpretation: Use the frpm table instead of the schools table, as it also contains charter funding information and may represent a different administrative dataset.",
+     "sql": "SELECT SUM(CASE WHEN f.\"Charter Funding Type\" = 'Locally funded' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)\nFROM frpm f\nWHERE f.\"County Name\" = 'Santa Clara' AND f.\"Charter School (Y/N)\" = 1 AND f.\"Charter Funding Type\" IS NOT NULL",
+     "status": "success",
+     "columns": [
+      "SUM(CASE WHEN f.\"Charter Funding Type\" = 'Locally funded' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)"
+     ],
+     "rows": [
+      [
+       30.0
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 3,
+     "comment": "Third interpretation: Interpret \"compared to all other types\" as a relative ratio between locally funded schools and non-locally funded schools, rather than the total population.",
+     "sql": "SELECT SUM(CASE WHEN s.FundingType = 'Locally funded' THEN 1 ELSE 0 END) * 100.0 / SUM(CASE WHEN s.FundingType != 'Locally funded' THEN 1 ELSE 0 END)\nFROM schools s\nWHERE s.County = 'Santa Clara' AND s.Charter = 1 AND s.FundingType IS NOT NULL",
+     "status": "success",
+     "columns": [
+      "SUM(CASE WHEN s.FundingType = 'Locally funded' THEN 1 ELSE 0 END) * 100.0 / SUM(CASE WHEN s.FundingType != 'Locally funded' THEN 1 ELSE 0 END)"
+     ],
+     "rows": [
+      [
+       33.333333333333336
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 4,
+     "comment": "Fourth interpretation: Use all charter schools in Santa Clara as the denominator, regardless of whether their funding type is recorded (including NULLs).",
+     "sql": "SELECT SUM(CASE WHEN s.FundingType = 'Locally funded' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)\nFROM schools s\nWHERE s.County = 'Santa Clara' AND s.Charter = 1",
+     "status": "success",
+     "columns": [
+      "SUM(CASE WHEN s.FundingType = 'Locally funded' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)"
+     ],
+     "rows": [
+      [
+       24.390243902439025
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 5,
+     "comment": "Fifth interpretation: Use Nested Isolation to explicitly calculate the numerator and denominator as separate aggregates before computing the final percentage ratio.",
+     "sql": "SELECT (CAST(num.cnt AS FLOAT) / den.cnt) * 100\nFROM (\n    SELECT COUNT(*) AS cnt \n    FROM schools \n    WHERE County = 'Santa Clara' AND Charter = 1 AND FundingType = 'Locally funded'\n) num, \n(\n    SELECT COUNT(*) AS cnt \n    FROM schools \n    WHERE County = 'Santa Clara' AND Charter = 1 AND FundingType IS NOT NULL\n) den",
+     "status": "success",
+     "columns": [
+      "(CAST(num.cnt AS FLOAT) / den.cnt) * 100"
+     ],
+     "rows": [
+      [
+       25.0
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    }
+   ],
+   "chosen": 1,
+   "gold_result": {
+    "columns": [
+     "CAST(SUM(CASE WHEN FundingType = 'Locally funded' THEN 1 ELSE 0 END) AS REAL) * 100 / SUM(CASE WHEN FundingType != 'Locally funded' THEN 1 ELSE 0 END)"
+    ],
+    "rows": [
+     [
+      33.333333333333336
+     ]
+    ],
+    "row_count": 1
+   }
+  }
+ },
+ "elapsed_s": 496.9,
+ "difficulty": "moderate",
+ "single_shot_model": "google/gemma-4-31b",
+ "single_shot": {
+  "no_evidence": {
+   "include_evidence": false,
+   "system_prompt": "You are an expert data analyst who writes SQLite queries. Given a database schema and a question, write ONE SQLite SELECT query that answers it. Use only tables and columns that appear in the schema. Output the query and nothing else — no explanation, no markdown fences.",
+   "user_prompt": "Schema:\n\nTABLE: frpm\n  CDSCode                          text          [PK] [FK → schools.CDSCode]\n  Academic Year                    text      \n  County Code                      text      \n  District Code                    integer   \n  School Code                      text      \n  County Name                      text      \n  District Name                    text      \n  School Name                      text      \n  District Type                    text      \n  School Type                      text      \n  Educational Option Type          text      \n  NSLP Provision Status            text      \n  Charter School (Y/N)             integer   \n  Charter School Number            text      \n  Charter Funding Type             text      \n  IRC                              integer   \n  Low Grade                        text      \n  High Grade                       text      \n  Enrollment (K-12)                real      \n  Free Meal Count (K-12)           real      \n  Percent (%) Eligible Free (K-12) real      \n  FRPM Count (K-12)                real      \n  Percent (%) Eligible FRPM (K-12) real      \n  Enrollment (Ages 5-17)           real      \n  Free Meal Count (Ages 5-17)      real      \n  Percent (%) Eligible Free (Ages 5-17) real      \n  FRPM Count (Ages 5-17)           real      \n  Percent (%) Eligible FRPM (Ages 5-17) real      \n  2013-14 CALPADS Fall 1 Certification Status integer   \n\nTABLE: satscores\n  cds                              text          [PK] [FK → schools.CDSCode]\n  rtype                            text      \n  sname                            text      \n  dname                            text      \n  cname                            text      \n  enroll12                         integer   \n  NumTstTakr                       integer   \n  AvgScrRead                       integer   \n  AvgScrMath                       integer   \n  AvgScrWrite                      integer   \n  NumGE1500                        integer   \n\nTABLE: schools\n  CDSCode                          text          [PK]\n  NCESDist                         text      \n  NCESSchool                       text      \n  StatusType                       text      \n  County                           text      \n  District                         text      \n  School                           text      \n  Street                           text      \n  StreetAbr                        text      \n  City                             text      \n  Zip                              text      \n  State                            text      \n  MailStreet                       text      \n  MailStrAbr                       text      \n  MailCity                         text      \n  MailZip                          text      \n  MailState                        text      \n  Phone                            text      \n  Ext                              text      \n  Website                          text      \n  OpenDate                         date      \n  ClosedDate                       date      \n  Charter                          integer   \n  CharterNum                       text      \n  FundingType                      text      \n  DOC                              text      \n  DOCType                          text      \n  SOC                              text      \n  SOCType                          text      \n  EdOpsCode                        text      \n  EdOpsName                        text      \n  EILCode                          text      \n  EILName                          text      \n  GSoffered                        text      \n  GSserved                         text      \n  Virtual                          text      \n  Magnet                           integer   \n  Latitude                         real      \n  Longitude                        real      \n  AdmFName1                        text      \n  AdmLName1                        text      \n  AdmEmail1                        text      \n  AdmFName2                        text      \n  AdmLName2                        text      \n  AdmEmail2                        text      \n  AdmFName3                        text      \n  AdmLName3                        text      \n  AdmEmail3                        text      \n  LastUpdate                       date      \n\n\nQuestion: What is the ratio in percentage of Santa Clara County schools that are locally funded compared to all other types of charter school funding?\n\nWrite the SQLite query:",
+   "sql": "SELECT CAST(SUM(CASE WHEN FundingType = 'Locally Funded' THEN 1 ELSE 0 END) AS REAL) * 100 / SUM(CASE WHEN FundingType != 'Locally Funded' AND FundingType IS NOT NULL THEN 1 ELSE 0 END) FROM schools WHERE County = 'Santa Clara'",
+   "status": "success",
+   "columns": [
+    "CAST(SUM(CASE WHEN FundingType = 'Locally Funded' THEN 1 ELSE 0 END) AS REAL) * 100 / SUM(CASE WHEN FundingType != 'Locally Funded' AND FundingType IS NOT NULL THEN 1 ELSE 0 END)"
+   ],
+   "rows": [
+    [
+     0.0
+    ]
+   ],
+   "row_count": 1,
+   "truncated": false,
+   "error": null,
+   "matches_gold": false
+  },
+  "with_evidence": {
+   "include_evidence": true,
+   "system_prompt": "You are an expert data analyst who writes SQLite queries. Given a database schema and a question, write ONE SQLite SELECT query that answers it. Use only tables and columns that appear in the schema. Output the query and nothing else — no explanation, no markdown fences.",
+   "user_prompt": "Schema:\n\nTABLE: frpm\n  CDSCode                          text          [PK] [FK → schools.CDSCode]\n  Academic Year                    text      \n  County Code                      text      \n  District Code                    integer   \n  School Code                      text      \n  County Name                      text      \n  District Name                    text      \n  School Name                      text      \n  District Type                    text      \n  School Type                      text      \n  Educational Option Type          text      \n  NSLP Provision Status            text      \n  Charter School (Y/N)             integer   \n  Charter School Number            text      \n  Charter Funding Type             text      \n  IRC                              integer   \n  Low Grade                        text      \n  High Grade                       text      \n  Enrollment (K-12)                real      \n  Free Meal Count (K-12)           real      \n  Percent (%) Eligible Free (K-12) real      \n  FRPM Count (K-12)                real      \n  Percent (%) Eligible FRPM (K-12) real      \n  Enrollment (Ages 5-17)           real      \n  Free Meal Count (Ages 5-17)      real      \n  Percent (%) Eligible Free (Ages 5-17) real      \n  FRPM Count (Ages 5-17)           real      \n  Percent (%) Eligible FRPM (Ages 5-17) real      \n  2013-14 CALPADS Fall 1 Certification Status integer   \n\nTABLE: satscores\n  cds                              text          [PK] [FK → schools.CDSCode]\n  rtype                            text      \n  sname                            text      \n  dname                            text      \n  cname                            text      \n  enroll12                         integer   \n  NumTstTakr                       integer   \n  AvgScrRead                       integer   \n  AvgScrMath                       integer   \n  AvgScrWrite                      integer   \n  NumGE1500                        integer   \n\nTABLE: schools\n  CDSCode                          text          [PK]\n  NCESDist                         text      \n  NCESSchool                       text      \n  StatusType                       text      \n  County                           text      \n  District                         text      \n  School                           text      \n  Street                           text      \n  StreetAbr                        text      \n  City                             text      \n  Zip                              text      \n  State                            text      \n  MailStreet                       text      \n  MailStrAbr                       text      \n  MailCity                         text      \n  MailZip                          text      \n  MailState                        text      \n  Phone                            text      \n  Ext                              text      \n  Website                          text      \n  OpenDate                         date      \n  ClosedDate                       date      \n  Charter                          integer   \n  CharterNum                       text      \n  FundingType                      text      \n  DOC                              text      \n  DOCType                          text      \n  SOC                              text      \n  SOCType                          text      \n  EdOpsCode                        text      \n  EdOpsName                        text      \n  EILCode                          text      \n  EILName                          text      \n  GSoffered                        text      \n  GSserved                         text      \n  Virtual                          text      \n  Magnet                           integer   \n  Latitude                         real      \n  Longitude                        real      \n  AdmFName1                        text      \n  AdmLName1                        text      \n  AdmEmail1                        text      \n  AdmFName2                        text      \n  AdmLName2                        text      \n  AdmEmail2                        text      \n  AdmFName3                        text      \n  AdmLName3                        text      \n  AdmEmail3                        text      \n  LastUpdate                       date      \n\n\nQuestion: What is the ratio in percentage of Santa Clara County schools that are locally funded compared to all other types of charter school funding?\nHint: Ratio in percentage = (count(locally funded schools in Santa Clara) / count(all funding type schools in Santa Clara) * 100%\n\nWrite the SQLite query:",
+   "sql": "SELECT CAST(SUM(CASE WHEN FundingType = 'Local' THEN 1 ELSE 0 END) AS REAL) * 100 / COUNT(*) FROM schools WHERE County = 'Santa Clara'",
+   "status": "success",
+   "columns": [
+    "CAST(SUM(CASE WHEN FundingType = 'Local' THEN 1 ELSE 0 END) AS REAL) * 100 / COUNT(*)"
+   ],
+   "rows": [
+    [
+     0.0
+    ]
+   ],
+   "row_count": 1,
+   "truncated": false,
+   "error": null,
+   "matches_gold": false
+  }
+ },
+ "stages_noev": {
+  "stage1": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Today is your first day at a new company.\n\nNormally this work takes three days. You do not have three days. You have to do it all today.\n\nHere is how you think through a new client question:\n\nPHASE 1 — Before you look at anything:\nYou read the question and evidence first, with the schema face-down. You write out every question\nyou would want answered and every assumption you are making. You are a philosopher — you think in\nwho, what, when, where, by whom, for whom. You think in counter-proofs. What would make an\nassumption wrong? What encoding or edge case breaks the obvious reading? Stating a wrong assumption\nexplicitly is more honest and useful than a vague non-answer.\n\nPHASE 2 — You look at the schema:\nThe data dictionary arrives: table names, column names, types, primary keys, and foreign key\nrelationships. You do NOT get statistics — no min, max, null counts, or sample values. That is\nwhat Phase 3 is for. Some of your Phase 1 assumptions will be confirmed. Some will be wrong. Some\nnew questions will appear that you could not have thought of without seeing the actual column names.\nYou update every assumption. You tag each question.\n\nPHASE 3 — You write exploratory SQL:\nYou have database access. You are excited and thorough. You know that being new means you earn trust\nby being rigorous, not reckless. You have two phases of thinking behind you — now you turn that into\nexploratory SQL. Write at least 15 queries. The system will reject outputs with fewer than 5 —\nthose records will be skipped entirely and the question will not advance to the next stage.\n\nYou have six proof obligations:\n\n1. EXISTENCE LEMMA (DISTINCT probes):\n   For every categorical column you plan to filter on, run SELECT DISTINCT col FROM table LIMIT 20.\n   This is a direct proof of existence — it proves which values actually live in the database.\n   Without this proof, any filter using that column is an ungrounded conjecture. The system will\n   treat unproven filter values as errors in Stage 2.\n\n2. CONNECTIVITY LEMMA (join verification):\n   Before writing any multi-table JOIN, prove the join path works. Run a query on each side of the\n   join key: SELECT DISTINCT join_col FROM table_a LIMIT 5 and SELECT DISTINCT join_col FROM table_b\n   LIMIT 5. If both return values and they overlap, the join is proven. If either returns zero rows\n   or different types, the join is disproven — do not use it.\n\n3. AXIOMATIC NEUTRALITY (contrapositive for filters):\n   Do not add status, active/inactive, or any other filter unless the question explicitly mentions\n   it. Assume the contrapositive: if the question does not mention a constraint, its absence is\n   correct until you prove otherwise. Run at least one query WITHOUT any assumed filter to establish\n   the unfiltered baseline.\n\n4. COLUMN SUITABILITY PROOFS (null-count & scope):\n   Before using any column for aggregation (COUNT, AVG, SUM, MAX, MIN), run a null-count query:\n   SELECT COUNT(*) - COUNT(col) as nulls, COUNT(*) as total FROM table.\n   If nulls exceed 50% of total, that column is statistically unsuitable as a primary metric —\n   look for alternatives. After identifying your primary filter value, run TWO scope queries:\n   (a) one query WITHOUT the filter — note the total row count (unfiltered universe).\n   (b) one query WITH the filter — note the filtered row count.\n   Compare: if filtered count equals unfiltered count, the filter is a no-op and likely wrong.\n   If filtered count is zero, the value does not exist. Both indicate a scope mismatch.\n\n5. ANNOTATION LEMMA (semantic mapping of opaque columns):\n   If the schema contains column names that are short codes, single letters, abbreviations, or\n   numeric identifiers (e.g., col1, X, stat, code_a), you cannot assume their meaning from the\n   name alone. For every such opaque column that could be relevant to the question, run:\n   SELECT DISTINCT col FROM table LIMIT 20\n   Then annotate each with its apparent meaning based on the values returned. Format your comment:\n   \"ANNOTATION LEMMA: col_name appears to be [description] (values: val1, val2, val3)\"\n   This is a direct proof of semantic identity — without it, any use of an opaque column is an\n   ungrounded assumption about what the column contains.\n\n6. JOIN VERIFICATION (non-key joins):\n   The schema marks primary keys [PK] and foreign keys [FK]. If you plan to join two tables on\n   a column that is NOT marked as a PK or FK, you must prove the join is valid by querying both\n   sides: SELECT DISTINCT col FROM table_a LIMIT 5 and SELECT DISTINCT col FROM table_b LIMIT 5.\n   If the values do not overlap, the join is invalid. PK/FK joins are pre-verified by the schema.\n\nAdditional rules:\n- Multi-part question decomposition: Before writing any Phase 1 assumptions, read the\n  question and ask: does it contain multiple distinct sub-questions? A multi-part question\n  typically uses connectors like \"and\", \"also\", \"as well as\", or asks for two different\n  pieces of information in one sentence (e.g. \"What is X? What is Y for Z?\"). If yes,\n  list each sub-question separately in Phase 1 and treat them as independent proof obligations.\n  Your Phase 3 queries must cover every part — a query that only answers one part of a\n  multi-part question is incomplete. The final SQL must return all parts in a single query\n  (using JOIN, subquery, or multiple SELECT expressions as appropriate).\n- Cover all tables that could relate to the question, not just the most obvious one.\n- SELECT only the columns needed for each specific check — no extra \"context\" columns.\n- Identifier Precision: Determine whether the question asks for a primary identifier\n  (ID, code, number) or a descriptive label (name, title, description). If both columns exist\n  side by side in the same table, run a DISTINCT query on each. Your Phase 1 assumptions must\n  explicitly state which column type the question wants. This prevents the Director from\n  guessing at the SELECT column later.\n- Each query has exactly one SQL comment (-- ...) that is a single complete sentence explaining\n  why this specific piece of information matters for answering the client question.\n- Always use LIMIT. Check both heads and tails for any table you are uncertain about.\n- Do NOT write the final answer query — that comes after you see what these return.\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\nA numbered list. For each item: state the question, then immediately state your current assumption.\nAssumptions can be wrong — that is expected and useful.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, explaining why these are the\nright questions to ask.\n\n## PHASE 2 — SCHEMA REVIEW\nA numbered list. For each item from Phase 1, mark it with exactly one tag:\n  [CONFIRMED] — the profile supports your Phase 1 assumption\n  [REVISED]   — you need to update your assumption based on what you see\n  [NEW]       — a question that did not exist in Phase 1, raised by the schema or statistics\n  [DROPPED]   — this question is no longer relevant given what the profile shows\n\nAfter the tag, give a brief one-sentence reason.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, describing what the profile\nrevealed and what still requires direct database investigation.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\nA numbered list of SQL queries. Minimum 15 queries.\n\nSQLite rules — this is non-negotiable:\n- The database engine is SQLite. Write only SQL that SQLite supports.\n- Column names that contain spaces, parentheses, or special characters MUST be\n  wrapped in double quotes. Example: \"County Name\", \"Free Meal Count (K-12)\".\n  Never write an unquoted column name that contains a space.\n- Do not use window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.).\n- Always use LIMIT.\n- Do NOT write the final answer query.\n\nOutput format for Phase 3 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the department_type column.\n   SELECT DISTINCT department_type FROM departments LIMIT 20;\n\n2. -- SCOPE CHECK: Establish the time range covered by the data.\n   SELECT MIN(hire_date), MAX(hire_date) FROM employees LIMIT 1;\n\n3. -- NULL-COUNT PROOF: Verify salary column suitability for aggregation.\n   SELECT COUNT(*) - COUNT(salary) as nulls, COUNT(*) as total FROM employees LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between employees and departments.\n   SELECT DISTINCT department_id FROM employees LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Other side of the join.\n   SELECT DISTINCT id FROM departments LIMIT 5;\n\n6. -- ANNOTATION LEMMA: Determine what opaque column 'dept_code' actually contains.\n   SELECT DISTINCT dept_code FROM departments LIMIT 20;\n\n7. -- JOIN VERIFICATION: Verify non-key join between employees.role and roles.role_name.\n   SELECT DISTINCT role FROM employees LIMIT 5;\n\n8. -- SCOPE PROOF: Unfiltered universe count for the target table.\n   SELECT COUNT(*) FROM employees LIMIT 1;\n\n9. -- SCOPE PROOF: Filtered count — verify filter narrows to expected scope.\n   SELECT COUNT(*) FROM employees WHERE department_type = 'Engineering' LIMIT 1;",
+   "user_prompt": "A new client question just arrived on your desk.\n\nQuestion: What is the ratio in percentage of Santa Clara County schools that are locally funded compared to all other types of charter school funding?\n\nDatabase: california_schools\n\nSchema (table names, column names, types, primary keys, foreign keys):\n\nTABLE: frpm\n  CDSCode                          text          [PK] [FK → schools.CDSCode]\n  Academic Year                    text      \n  County Code                      text      \n  District Code                    integer   \n  School Code                      text      \n  County Name                      text      \n  District Name                    text      \n  School Name                      text      \n  District Type                    text      \n  School Type                      text      \n  Educational Option Type          text      \n  NSLP Provision Status            text      \n  Charter School (Y/N)             integer   \n  Charter School Number            text      \n  Charter Funding Type             text      \n  IRC                              integer   \n  Low Grade                        text      \n  High Grade                       text      \n  Enrollment (K-12)                real      \n  Free Meal Count (K-12)           real      \n  Percent (%) Eligible Free (K-12) real      \n  FRPM Count (K-12)                real      \n  Percent (%) Eligible FRPM (K-12) real      \n  Enrollment (Ages 5-17)           real      \n  Free Meal Count (Ages 5-17)      real      \n  Percent (%) Eligible Free (Ages 5-17) real      \n  FRPM Count (Ages 5-17)           real      \n  Percent (%) Eligible FRPM (Ages 5-17) real      \n  2013-14 CALPADS Fall 1 Certification Status integer   \n\nTABLE: satscores\n  cds                              text          [PK] [FK → schools.CDSCode]\n  rtype                            text      \n  sname                            text      \n  dname                            text      \n  cname                            text      \n  enroll12                         integer   \n  NumTstTakr                       integer   \n  AvgScrRead                       integer   \n  AvgScrMath                       integer   \n  AvgScrWrite                      integer   \n  NumGE1500                        integer   \n\nTABLE: schools\n  CDSCode                          text          [PK]\n  NCESDist                         text      \n  NCESSchool                       text      \n  StatusType                       text      \n  County                           text      \n  District                         text      \n  School                           text      \n  Street                           text      \n  StreetAbr                        text      \n  City                             text      \n  Zip                              text      \n  State                            text      \n  MailStreet                       text      \n  MailStrAbr                       text      \n  MailCity                         text      \n  MailZip                          text      \n  MailState                        text      \n  Phone                            text      \n  Ext                              text      \n  Website                          text      \n  OpenDate                         date      \n  ClosedDate                       date      \n  Charter                          integer   \n  CharterNum                       text      \n  FundingType                      text      \n  DOC                              text      \n  DOCType                          text      \n  SOC                              text      \n  SOCType                          text      \n  EdOpsCode                        text      \n  EdOpsName                        text      \n  EILCode                          text      \n  EILName                          text      \n  GSoffered                        text      \n  GSserved                         text      \n  Virtual                          text      \n  Magnet                           integer   \n  Latitude                         real      \n  Longitude                        real      \n  AdmFName1                        text      \n  AdmLName1                        text      \n  AdmEmail1                        text      \n  AdmFName2                        text      \n  AdmLName2                        text      \n  AdmEmail2                        text      \n  AdmFName3                        text      \n  AdmLName3                        text      \n  AdmEmail3                        text      \n  LastUpdate                       date      \n\n\nWork through all three phases now.",
+   "response": "## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\n\n1. Does the question restrict the entire universe to charter schools, or does it compare locally funded charter schools against all other funding types regardless of charter status?\nAssumption: The phrase \"all other types of charter school funding\" implies that both the numerator (locally funded) and denominator (other types) must be charter schools.\n\n2. What is the exact string used to identify Santa Clara County in the database?\nAssumption: It will be stored as 'Santa Clara' or 'Santa Clara County'.\n\n3. Which column defines \"locally funded\"?\nAssumption: There is a funding type column where one of the values is exactly 'Local' or contains the word 'Local'.\n\n4. Is the ratio calculated as (Locally Funded / Other Charter Funding) or (Locally Funded / Total Charter Funding)?\nAssumption: The phrasing \"compared to all other types\" suggests a ratio of A to B, not A to (A+B).\n\n5. Which table is the authoritative source for funding and county information?\nAssumption: Both `schools` and `frpm` contain this data; I assume they are consistent but will need to verify which has fewer nulls.\n\n6. How is the \"Charter\" status encoded in the integer columns?\nAssumption: A value of 1 indicates a charter school and 0 indicates it is not.\n\n7. Does the user want the primary identifier (CDSCode) or a descriptive label for these schools?\nAssumption: The question asks for a ratio (a number), so identifiers are only needed for counting, not for final output.\n\nREASONING:\nThe core of this request depends on defining the subset of \"Charter Schools\" within a specific geography. I must determine if \"locally funded\" is a distinct category or a property shared by multiple types. The distinction between the `schools` and `frpm` tables is critical as they both contain overlapping metadata. I need to verify the exact string values for counties and funding types to avoid empty result sets. Finally, the mathematical definition of the ratio must be grounded in the actual distribution of funding categories found in the data.\n\n## PHASE 2 — SCHEMA REVIEW\n\n1. [CONFIRMED] The `schools` table has `County`, `Charter`, and `FundingType`.\n2. [REVISED] Both `schools.County` and `frpm.\"County Name\"` exist; I must check both to see which is more reliable for 'Santa Clara'.\n3. [CONFIRMED] `schools.FundingType` and `frpm.\"Charter Funding Type\"` are available to identify \"locally funded\" schools.\n4. [CONFIRMED] The ratio will be a calculation based on counts of these categories.\n5. [REVISED] I see `frpm` has `\"Charter School (Y/N)\"` as an integer and `schools` has `Charter` as an integer; I need to check if they use the same encoding.\n6. [CONFIRMED] The `Charter` columns are integers, supporting the 0/1 assumption.\n7. [CONFIRMED] Only a percentage ratio is requested.\n\nREASONING:\nThe schema reveals a significant overlap between the `schools` and `frpm` tables regarding school metadata. I have identified two potential paths for every filter: one via the `schools` table and one via the `frpm` table. The presence of `\"Charter Funding Type\"` in `frpm` and `FundingType` in `schools` suggests that funding data is mirrored or split. I must now investigate the actual values in these columns to see which one contains the \"Local\" designation. Direct database probes are required to confirm if 'Santa Clara' is the correct string for the county filter.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\n\n1. -- EXISTENCE PROOF: Confirm how Santa Clara County is represented in the schools table.\n   SELECT DISTINCT County FROM schools WHERE County LIKE '%Clara%' LIMIT 20;\n\n2. -- EXISTENCE PROOF: Confirm how Santa Clara County is represented in the frpm table.\n   SELECT DISTINCT \"County Name\" FROM frpm WHERE \"County Name\" LIKE '%Clara%' LIMIT 20;\n\n3. -- EXISTENCE PROOF: Identify all possible values for funding types in the schools table to find \"locally funded\".\n   SELECT DISTINCT FundingType FROM schools LIMIT 20;\n\n4. -- EXISTENCE PROOF: Identify all possible values for charter funding types in the frpm table.\n   SELECT DISTINCT \"Charter Funding Type\" FROM frpm LIMIT 20;\n\n5. -- EXISTENCE PROOF: Verify the encoding of the Charter flag in the schools table.\n   SELECT DISTINCT Charter FROM schools LIMIT 20;\n\n6. -- EXISTENCE PROOF: Verify the encoding of the Charter flag in the frpm table.\n   SELECT DISTINCT \"Charter School (Y/N)\" FROM frpm LIMIT 20;\n\n7. -- NULL-COUNT PROOF: Check suitability of FundingType in schools for aggregation.\n   SELECT COUNT(*) - COUNT(FundingType) as nulls, COUNT(*) as total FROM schools LIMIT 1;\n\n8. -- NULL-COUNT PROOF: Check suitability of Charter Funding Type in frpm for aggregation.\n   SELECT COUNT(*) - COUNT(\"Charter Funding Type\") as nulls, COUNT(*) as total FROM frpm LIMIT 1;\n\n9. -- CONNECTIVITY LEMMA: Verify join key overlap between schools and frpm on CDSCode.\n   SELECT DISTINCT CDSCode FROM schools LIMIT 5;\n\n10. -- CONNECTIVITY LEMMA: Other side of the join for schools to frpm.\n    SELECT DISTINCT CDSCode FROM frpm LIMIT 5;\n\n11. -- AXIOMATIC NEUTRALITY: Establish a baseline count of all schools in Santa Clara regardless of funding or charter status.\n    SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' LIMIT 1;\n\n12. -- SCOPE PROOF: Count total charter schools in Santa Clara to establish the universe for the ratio.\n    SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND Charter = 1 LIMIT 1;\n\n13. -- SCOPE PROOF: Count locally funded schools in Santa Clara to verify the numerator exists.\n    SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND FundingType = 'Local' LIMIT 1;\n\n14. -- ANNOTATION LEMMA: Determine if \"Charter School Number\" is a meaningful identifier or just a sequence.\n    SELECT DISTINCT \"Charter School Number\" FROM frpm LIMIT 20;\n\n15. -- SCOPE PROOF: Check for any schools that are marked as Charter=1 but have no FundingType listed.\n    SELECT COUNT(*) FROM schools WHERE Charter = 1 AND FundingType IS NULL LIMIT 1;",
+   "phase1": "1. Does the question restrict the entire universe to charter schools, or does it compare locally funded charter schools against all other funding types regardless of charter status?\nAssumption: The phrase \"all other types of charter school funding\" implies that both the numerator (locally funded) and denominator (other types) must be charter schools.\n\n2. What is the exact string used to identify Santa Clara County in the database?\nAssumption: It will be stored as 'Santa Clara' or 'Santa Clara County'.\n\n3. Which column defines \"locally funded\"?\nAssumption: There is a funding type column where one of the values is exactly 'Local' or contains the word 'Local'.\n\n4. Is the ratio calculated as (Locally Funded / Other Charter Funding) or (Locally Funded / Total Charter Funding)?\nAssumption: The phrasing \"compared to all other types\" suggests a ratio of A to B, not A to (A+B).\n\n5. Which table is the authoritative source for funding and county information?\nAssumption: Both `schools` and `frpm` contain this data; I assume they are consistent but will need to verify which has fewer nulls.\n\n6. How is the \"Charter\" status encoded in the integer columns?\nAssumption: A value of 1 indicates a charter school and 0 indicates it is not.\n\n7. Does the user want the primary identifier (CDSCode) or a descriptive label for these schools?\nAssumption: The question asks for a ratio (a number), so identifiers are only needed for counting, not for final output.\n\nREASONING:\nThe core of this request depends on defining the subset of \"Charter Schools\" within a specific geography. I must determine if \"locally funded\" is a distinct category or a property shared by multiple types. The distinction between the `schools` and `frpm` tables is critical as they both contain overlapping metadata. I need to verify the exact string values for counties and funding types to avoid empty result sets. Finally, the mathematical definition of the ratio must be grounded in the actual distribution of funding categories found in the data.",
+   "phase2": "1. [CONFIRMED] The `schools` table has `County`, `Charter`, and `FundingType`.\n2. [REVISED] Both `schools.County` and `frpm.\"County Name\"` exist; I must check both to see which is more reliable for 'Santa Clara'.\n3. [CONFIRMED] `schools.FundingType` and `frpm.\"Charter Funding Type\"` are available to identify \"locally funded\" schools.\n4. [CONFIRMED] The ratio will be a calculation based on counts of these categories.\n5. [REVISED] I see `frpm` has `\"Charter School (Y/N)\"` as an integer and `schools` has `Charter` as an integer; I need to check if they use the same encoding.\n6. [CONFIRMED] The `Charter` columns are integers, supporting the 0/1 assumption.\n7. [CONFIRMED] Only a percentage ratio is requested.\n\nREASONING:\nThe schema reveals a significant overlap between the `schools` and `frpm` tables regarding school metadata. I have identified two potential paths for every filter: one via the `schools` table and one via the `frpm` table. The presence of `\"Charter Funding Type\"` in `frpm` and `FundingType` in `schools` suggests that funding data is mirrored or split. I must now investigate the actual values in these columns to see which one contains the \"Local\" designation. Direct database probes are required to confirm if 'Santa Clara' is the correct string for the county filter.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "EXISTENCE PROOF: Confirm how Santa Clara County is represented in the schools table.",
+     "sql": "SELECT DISTINCT County FROM schools WHERE County LIKE '%Clara%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "County"
+     ],
+     "head": [
+      [
+       "Santa Clara"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "EXISTENCE PROOF: Confirm how Santa Clara County is represented in the frpm table.",
+     "sql": "SELECT DISTINCT \"County Name\" FROM frpm WHERE \"County Name\" LIKE '%Clara%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "County Name"
+     ],
+     "head": [
+      [
+       "Santa Clara"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "EXISTENCE PROOF: Identify all possible values for funding types in the schools table to find \"locally funded\".",
+     "sql": "SELECT DISTINCT FundingType FROM schools LIMIT 20",
+     "status": "success",
+     "columns": [
+      "FundingType"
+     ],
+     "head": [
+      [
+       null
+      ],
+      [
+       "Directly funded"
+      ],
+      [
+       "Locally funded"
+      ],
+      [
+       "Not in CS funding model"
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "EXISTENCE PROOF: Identify all possible values for charter funding types in the frpm table.",
+     "sql": "SELECT DISTINCT \"Charter Funding Type\" FROM frpm LIMIT 20",
+     "status": "success",
+     "columns": [
+      "Charter Funding Type"
+     ],
+     "head": [
+      [
+       "Directly funded"
+      ],
+      [
+       null
+      ],
+      [
+       "Locally funded"
+      ],
+      [
+       "Not in CS funding model"
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "EXISTENCE PROOF: Verify the encoding of the Charter flag in the schools table.",
+     "sql": "SELECT DISTINCT Charter FROM schools LIMIT 20",
+     "status": "success",
+     "columns": [
+      "Charter"
+     ],
+     "head": [
+      [
+       null
+      ],
+      [
+       1
+      ],
+      [
+       0
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "EXISTENCE PROOF: Verify the encoding of the Charter flag in the frpm table.",
+     "sql": "SELECT DISTINCT \"Charter School (Y/N)\" FROM frpm LIMIT 20",
+     "status": "success",
+     "columns": [
+      "Charter School (Y/N)"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       0
+      ],
+      [
+       null
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "NULL-COUNT PROOF: Check suitability of FundingType in schools for aggregation.",
+     "sql": "SELECT COUNT(*) - COUNT(FundingType) as nulls, COUNT(*) as total FROM schools LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       16044,
+       17686
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "NULL-COUNT PROOF: Check suitability of Charter Funding Type in frpm for aggregation.",
+     "sql": "SELECT COUNT(*) - COUNT(\"Charter Funding Type\") as nulls, COUNT(*) as total FROM frpm LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       8819,
+       9986
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between schools and frpm on CDSCode.",
+     "sql": "SELECT DISTINCT CDSCode FROM schools LIMIT 5",
+     "status": "success",
+     "columns": [
+      "CDSCode"
+     ],
+     "head": [
+      [
+       "01100170000000"
+      ],
+      [
+       "01100170109835"
+      ],
+      [
+       "01100170112607"
+      ],
+      [
+       "01100170118489"
+      ],
+      [
+       "01100170123968"
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "CONNECTIVITY LEMMA: Other side of the join for schools to frpm.",
+     "sql": "SELECT DISTINCT CDSCode FROM frpm LIMIT 5",
+     "status": "success",
+     "columns": [
+      "CDSCode"
+     ],
+     "head": [
+      [
+       "01100170109835"
+      ],
+      [
+       "01100170112607"
+      ],
+      [
+       "01100170118489"
+      ],
+      [
+       "01100170123968"
+      ],
+      [
+       "01100170124172"
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "AXIOMATIC NEUTRALITY: Establish a baseline count of all schools in Santa Clara regardless of funding or charter status.",
+     "sql": "SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       780
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "SCOPE PROOF: Count total charter schools in Santa Clara to establish the universe for the ratio.",
+     "sql": "SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND Charter = 1 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       82
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "SCOPE PROOF: Count locally funded schools in Santa Clara to verify the numerator exists.",
+     "sql": "SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND FundingType = 'Local' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "ANNOTATION LEMMA: Determine if \"Charter School Number\" is a meaningful identifier or just a sequence.",
+     "sql": "SELECT DISTINCT \"Charter School Number\" FROM frpm LIMIT 20",
+     "status": "success",
+     "columns": [
+      "Charter School Number"
+     ],
+     "head": [
+      [
+       "0728"
+      ],
+      [
+       "0811"
+      ],
+      [
+       "1049"
+      ],
+      [
+       "1284"
+      ],
+      [
+       "1296"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "SCOPE PROOF: Check for any schools that are marked as Charter=1 but have no FundingType listed.",
+     "sql": "SELECT COUNT(*) FROM schools WHERE Charter = 1 AND FundingType IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       127
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage2": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Yesterday you worked through a client question in three phases:\nPhase 1 — questions and assumptions written before seeing the schema.\nPhase 2 — schema review, assumptions updated against column profiles.\nPhase 3 — exploratory SQL queries written to investigate the data.\n\nNow the queries have run. You have the results in front of you.\n\nYour job today is three phases:\n\nPHASE 4 — REVISED ASSUMPTIONS\nGo through every assumption you made in Phases 1 and 2. For each one, state what the query results show.\nTag each item with exactly one of:\n  [CONFIRMED]    — a PASSED query directly proves this assumption. Cite the query number.\n  [REVISED]      — results partially support but require adjustment. State what changed and why.\n  [CONTRADICTED] — a query returned zero rows, an error, or unexpected data that disproves this\n                   hypothesis. This is not a failure — it is a proof by contradiction. State clearly\n                   what was disproven and what it implies.\n  [OPEN-VALUE]   — an assumption involves a string filter value that was NEVER confirmed with a\n                   SELECT DISTINCT query. This is an open conjecture — the Director cannot use it.\n                   Phase 5 MUST include a DISTINCT query to resolve it.\n  [WRONG-TABLE]  — query results suggest the data does not live in the assumed table (column doesn't\n                   exist, zero rows where many were expected, data type mismatch). The hypothesis\n                   about which table to use is disproven. Phase 5 must explore the alternative.\n  [LIKE-VS-ENUM] — the analyst used LIKE or a substring match on a name/description column, but\n                   the schema may contain a separate coded or enum column for the same concept\n                   (e.g., filtering by name string when a type_code column exists). Phase 5 MUST\n                   include a DISTINCT query on the potential enum column to check if it provides\n                   a cleaner, exact-match filter.\n\nAfter the tag, write one sentence citing which query result led to this conclusion.\n\nContrapositive test for filters: For each filter in your hypothesis, apply the contrapositive test:\n\"If the question does not explicitly mention this constraint, then it should NOT appear in the WHERE\nclause.\" If Stage 1 added a filter that the question never asked for (e.g. a status filter, an\nactive/inactive check), tag it [CONTRADICTED] with reason: \"contrapositive — question does not\nmention this constraint.\"\n\nPHASE 4b — HYPOTHESIS REVIEW\nWrite a short paragraph (3–5 sentences) answering:\n  1. Does your original hypothesis about how to answer this question still hold?\n     State clearly: YES it holds, NO it needs to change, or PARTIALLY — explain what changed.\n  2. Did the query results reveal anything you did not expect? If so, what?\n  3. What is your updated hypothesis for the final SQL approach?\n\nYour updated hypothesis must name:\n  - The exact table name(s) as they appear in the schema\n  - The exact column name(s) — quoted if they contain spaces\n  - The exact confirmed string value (if a filter is needed) — proven by a DISTINCT query\n  - The exact join path (if tables must be joined) — proven by connectivity lemma queries\n  Vague hypotheses like \"filter by type\" or \"join on the ID column\" are rejected.\n  If any piece is uncertain, tag it [OPEN-VALUE] and resolve it in Phase 5.\n\nPHASE 5 — CONFIRMATION QUERIES\nWrite at least 15 new SQL queries. The system will reject outputs with fewer than 5 — those records\nwill be skipped entirely. These are not exploratory — they are targeted at the gaps, surprises, and\nrevised assumptions from Phases 4 and 4b.\n\nMandatory resolution: Every [OPEN-VALUE] and [WRONG-TABLE] from Phase 4 MUST have a corresponding\nresolution query in Phase 5. An unresolved conjecture is a gap that the Director will fill with\nguesswork — and guesswork is how we get wrong answers.\n  - For [OPEN-VALUE]: run SELECT DISTINCT col FROM table LIMIT 20 to prove the exact value.\n  - For [WRONG-TABLE]: run exploratory queries against the alternative table.\n  - For [LIKE-VS-ENUM]: run SELECT DISTINCT enum_col FROM table LIMIT 20. If the enum column\n    provides exact values that match the question's intent, recommend it over the LIKE filter\n    in your Phase 4b hypothesis update.\n\nDo not repeat queries from Phase 3. Each query must address something new.\n\nSQLite rules — same as before, non-negotiable:\n- Column names with spaces or special characters MUST be double-quoted: \"County Name\"\n- No window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.)\n- Always use LIMIT\n- Do NOT write the final answer query\n\nOutput format for Phase 5 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- RESOLVE [OPEN-VALUE]: Prove what distinct values exist in order_status.\n   SELECT DISTINCT order_status FROM orders LIMIT 20;\n\n2. -- RESOLVE [WRONG-TABLE]: Check if revenue data lives in invoices instead of orders.\n   SELECT COUNT(*), MIN(total), MAX(total) FROM invoices LIMIT 1;\n\n3. -- CONTRAPOSITIVE TEST: Verify results without the assumed 'active' filter.\n   SELECT COUNT(*) FROM customers LIMIT 1;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check if department_code is a cleaner filter than department_name.\n   SELECT DISTINCT department_code, department_name FROM departments LIMIT 20;\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 4 — REVISED ASSUMPTIONS\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\n## PHASE 5 — CONFIRMATION QUERIES",
+   "user_prompt": "The query results are in. Time to review.\n\nQuestion: What is the ratio in percentage of Santa Clara County schools that are locally funded compared to all other types of charter school funding?\n\nDatabase: california_schools\n\nSchema (same as before — table names, column names, types, join keys):\n\nTABLE: frpm\n  CDSCode                          text          [PK] [FK → schools.CDSCode]\n  Academic Year                    text      \n  County Code                      text      \n  District Code                    integer   \n  School Code                      text      \n  County Name                      text      \n  District Name                    text      \n  School Name                      text      \n  District Type                    text      \n  School Type                      text      \n  Educational Option Type          text      \n  NSLP Provision Status            text      \n  Charter School (Y/N)             integer   \n  Charter School Number            text      \n  Charter Funding Type             text      \n  IRC                              integer   \n  Low Grade                        text      \n  High Grade                       text      \n  Enrollment (K-12)                real      \n  Free Meal Count (K-12)           real      \n  Percent (%) Eligible Free (K-12) real      \n  FRPM Count (K-12)                real      \n  Percent (%) Eligible FRPM (K-12) real      \n  Enrollment (Ages 5-17)           real      \n  Free Meal Count (Ages 5-17)      real      \n  Percent (%) Eligible Free (Ages 5-17) real      \n  FRPM Count (Ages 5-17)           real      \n  Percent (%) Eligible FRPM (Ages 5-17) real      \n  2013-14 CALPADS Fall 1 Certification Status integer   \n\nTABLE: satscores\n  cds                              text          [PK] [FK → schools.CDSCode]\n  rtype                            text      \n  sname                            text      \n  dname                            text      \n  cname                            text      \n  enroll12                         integer   \n  NumTstTakr                       integer   \n  AvgScrRead                       integer   \n  AvgScrMath                       integer   \n  AvgScrWrite                      integer   \n  NumGE1500                        integer   \n\nTABLE: schools\n  CDSCode                          text          [PK]\n  NCESDist                         text      \n  NCESSchool                       text      \n  StatusType                       text      \n  County                           text      \n  District                         text      \n  School                           text      \n  Street                           text      \n  StreetAbr                        text      \n  City                             text      \n  Zip                              text      \n  State                            text      \n  MailStreet                       text      \n  MailStrAbr                       text      \n  MailCity                         text      \n  MailZip                          text      \n  MailState                        text      \n  Phone                            text      \n  Ext                              text      \n  Website                          text      \n  OpenDate                         date      \n  ClosedDate                       date      \n  Charter                          integer   \n  CharterNum                       text      \n  FundingType                      text      \n  DOC                              text      \n  DOCType                          text      \n  SOC                              text      \n  SOCType                          text      \n  EdOpsCode                        text      \n  EdOpsName                        text      \n  EILCode                          text      \n  EILName                          text      \n  GSoffered                        text      \n  GSserved                         text      \n  Virtual                          text      \n  Magnet                           integer   \n  Latitude                         real      \n  Longitude                        real      \n  AdmFName1                        text      \n  AdmLName1                        text      \n  AdmEmail1                        text      \n  AdmFName2                        text      \n  AdmLName2                        text      \n  AdmEmail2                        text      \n  AdmFName3                        text      \n  AdmLName3                        text      \n  AdmEmail3                        text      \n  LastUpdate                       date      \n\n\n---\n\nYour Phase 1 — Two Semantic Hypotheses:\n\n1. Does the question restrict the entire universe to charter schools, or does it compare locally funded charter schools against all other funding types regardless of charter status?\nAssumption: The phrase \"all other types of charter school funding\" implies that both the numerator (locally funded) and denominator (other types) must be charter schools.\n\n2. What is the exact string used to identify Santa Clara County in the database?\nAssumption: It will be stored as 'Santa Clara' or 'Santa Clara County'.\n\n3. Which column defines \"locally funded\"?\nAssumption: There is a funding type column where one of the values is exactly 'Local' or contains the word 'Local'.\n\n4. Is the ratio calculated as (Locally Funded / Other Charter Funding) or (Locally Funded / Total Charter Funding)?\nAssumption: The phrasing \"compared to all other types\" suggests a ratio of A to B, not A to (A+B).\n\n5. Which table is the authoritative source for funding and county information?\nAssumption: Both `schools` and `frpm` contain this data; I assume they are consistent but will need to verify which has fewer nulls.\n\n6. How is the \"Charter\" status encoded in the integer columns?\nAssumption: A value of 1 indicates a charter school and 0 indicates it is not.\n\n7. Does the user want the primary identifier (CDSCode) or a descriptive label for these schools?\nAssumption: The question asks for a ratio (a number), so identifiers are only needed for counting, not for final output.\n\nREASONING:\nThe core of this request depends on defining the subset of \"Charter Schools\" within a specific geography. I must determine if \"locally funded\" is a distinct category or a property shared by multiple types. The distinction between the `schools` and `frpm` tables is critical as they both contain overlapping metadata. I need to verify the exact string values for counties and funding types to avoid empty result sets. Finally, the mathematical definition of the ratio must be grounded in the actual distribution of funding categories found in the data.\n\n---\n\nYour Phase 2 — Schema Deep Dive:\n\n1. [CONFIRMED] The `schools` table has `County`, `Charter`, and `FundingType`.\n2. [REVISED] Both `schools.County` and `frpm.\"County Name\"` exist; I must check both to see which is more reliable for 'Santa Clara'.\n3. [CONFIRMED] `schools.FundingType` and `frpm.\"Charter Funding Type\"` are available to identify \"locally funded\" schools.\n4. [CONFIRMED] The ratio will be a calculation based on counts of these categories.\n5. [REVISED] I see `frpm` has `\"Charter School (Y/N)\"` as an integer and `schools` has `Charter` as an integer; I need to check if they use the same encoding.\n6. [CONFIRMED] The `Charter` columns are integers, supporting the 0/1 assumption.\n7. [CONFIRMED] Only a percentage ratio is requested.\n\nREASONING:\nThe schema reveals a significant overlap between the `schools` and `frpm` tables regarding school metadata. I have identified two potential paths for every filter: one via the `schools` table and one via the `frpm` table. The presence of `\"Charter Funding Type\"` in `frpm` and `FundingType` in `schools` suggests that funding data is mirrored or split. I must now investigate the actual values in these columns to see which one contains the \"Local\" designation. Direct database probes are required to confirm if 'Santa Clara' is the correct string for the county filter.\n\n---\n\nPhase 3 — Exploratory Query Results:\n\n1. -- EXISTENCE PROOF: Confirm how Santa Clara County is represented in the schools table.\n   SELECT DISTINCT County FROM schools WHERE County LIKE '%Clara%' LIMIT 20\n   Columns: County\n   ['Santa Clara']\n\n2. -- EXISTENCE PROOF: Confirm how Santa Clara County is represented in the frpm table.\n   SELECT DISTINCT \"County Name\" FROM frpm WHERE \"County Name\" LIKE '%Clara%' LIMIT 20\n   Columns: County Name\n   ['Santa Clara']\n\n3. -- EXISTENCE PROOF: Identify all possible values for funding types in the schools table to find \"locally funded\".\n   SELECT DISTINCT FundingType FROM schools LIMIT 20\n   Columns: FundingType\n   [None]\n   ['Directly funded']\n   ['Locally funded']\n   ... (4 rows total)\n\n4. -- EXISTENCE PROOF: Identify all possible values for charter funding types in the frpm table.\n   SELECT DISTINCT \"Charter Funding Type\" FROM frpm LIMIT 20\n   Columns: Charter Funding Type\n   ['Directly funded']\n   [None]\n   ['Locally funded']\n   ... (4 rows total)\n\n5. -- EXISTENCE PROOF: Verify the encoding of the Charter flag in the schools table.\n   SELECT DISTINCT Charter FROM schools LIMIT 20\n   Columns: Charter\n   [None]\n   [1]\n   [0]\n\n6. -- EXISTENCE PROOF: Verify the encoding of the Charter flag in the frpm table.\n   SELECT DISTINCT \"Charter School (Y/N)\" FROM frpm LIMIT 20\n   Columns: Charter School (Y/N)\n   [1]\n   [0]\n   [None]\n\n7. -- NULL-COUNT PROOF: Check suitability of FundingType in schools for aggregation.\n   SELECT COUNT(*) - COUNT(FundingType) as nulls, COUNT(*) as total FROM schools LIMIT 1\n   Columns: nulls, total\n   [16044, 17686]\n\n8. -- NULL-COUNT PROOF: Check suitability of Charter Funding Type in frpm for aggregation.\n   SELECT COUNT(*) - COUNT(\"Charter Funding Type\") as nulls, COUNT(*) as total FROM frpm LIMIT 1\n   Columns: nulls, total\n   [8819, 9986]\n\n9. -- CONNECTIVITY LEMMA: Verify join key overlap between schools and frpm on CDSCode.\n   SELECT DISTINCT CDSCode FROM schools LIMIT 5\n   Columns: CDSCode\n   ['01100170000000']\n   ['01100170109835']\n   ['01100170112607']\n   ... (5 rows total)\n\n10. -- CONNECTIVITY LEMMA: Other side of the join for schools to frpm.\n   SELECT DISTINCT CDSCode FROM frpm LIMIT 5\n   Columns: CDSCode\n   ['01100170109835']\n   ['01100170112607']\n   ['01100170118489']\n   ... (5 rows total)\n\n11. -- AXIOMATIC NEUTRALITY: Establish a baseline count of all schools in Santa Clara regardless of funding or charter status.\n   SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' LIMIT 1\n   Columns: COUNT(*)\n   [780]\n\n12. -- SCOPE PROOF: Count total charter schools in Santa Clara to establish the universe for the ratio.\n   SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND Charter = 1 LIMIT 1\n   Columns: COUNT(*)\n   [82]\n\n13. -- SCOPE PROOF: Count locally funded schools in Santa Clara to verify the numerator exists.\n   SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND FundingType = 'Local' LIMIT 1\n   Columns: COUNT(*)\n   [0]\n\n14. -- ANNOTATION LEMMA: Determine if \"Charter School Number\" is a meaningful identifier or just a sequence.\n   SELECT DISTINCT \"Charter School Number\" FROM frpm LIMIT 20\n   Columns: Charter School Number\n   ['0728']\n   ['0811']\n   ['1049']\n   ... (20 rows total)\n\n15. -- SCOPE PROOF: Check for any schools that are marked as Charter=1 but have no FundingType listed.\n   SELECT COUNT(*) FROM schools WHERE Charter = 1 AND FundingType IS NULL LIMIT 1\n   Columns: COUNT(*)\n   [127]\n\n---\n\nWork through Phase 4 and Phase 5 now.",
+   "response": "## PHASE 4 — REVISED ASSUMPTIONS\n\n1. [CONFIRMED] The universe of schools is restricted to charter schools because the denominator specifies \"all other types of charter school funding.\" Query 12 establishes a baseline count for this subset in Santa Clara.\n2. [CONFIRMED] The string used for the county filter is 'Santa Clara'. This was proven by both Query 1 and Query 2.\n3. [REVISED] The assumption that \"locally funded\" would be stored as 'Local' was incorrect; Query 13 returned zero rows, while Query 3 shows the exact string is 'Locally funded'.\n4. [CONFIRMED] The ratio is calculated as (Locally Funded / Other Charter Funding) based on the phrasing \"compared to all other types.\" This logic is supported by the distinct values found in Query 3 and 4.\n5. [REVISED] While both tables contain funding data, `schools` has a high null rate for `FundingType` (Query 7), whereas `frpm` appears more complete for this specific attribute (Query 8). I must investigate if `frpm` is the primary source for funding types.\n6. [CONFIRMED] The Charter status is encoded as an integer where 1 represents a charter school. This was proven by Query 5 and Query 6.\n7. [CONFIRMED] The final output is a percentage ratio, not a list of schools. Logic based on the question's request for \"the ratio in percentage.\"\n\nContrapositive Test: No constraints were added to the hypotheses (such as date ranges or status flags) that were not explicitly mentioned in the original question.\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\nThe original hypothesis holds PARTIALLY. The logic regarding the geography and charter status is correct, but the data source for funding types needs adjustment. Query results revealed a surprising amount of missing data in `schools.FundingType` (over 16,000 nulls), while `frpm.\"Charter Funding Type\"` has better coverage relative to its size. Furthermore, I discovered that using 'Local' as a filter fails, and the exact string 'Locally funded' must be used.\n\nMy updated hypothesis is to calculate the ratio using the `frpm` table as the primary source for funding types, as it appears more reliable for this specific attribute. If a school exists in `schools` but not in `frpm`, I will need to determine if that constitutes a missing \"type\" or an exclusion from the universe.\n\nUpdated Hypothesis:\n- Tables: `frpm` (primary) and `schools` (to verify total charter count).\n- Columns: `\"County Name\"`, `\"Charter School (Y/N)\"`, and `\"Charter Funding Type\"`.\n- Confirmed Values: County = 'Santa Clara', Charter = 1, Funding Type = 'Locally funded'.\n- Join Path: `schools.CDSCode = frpm.CDSCode` (if cross-referencing is required to ensure no charter schools are missed).\n\n## PHASE 5 — CONFIRMATION QUERIES\n\n1. -- RESOLVE [REVISED]: Confirm that using the exact string 'Locally funded' returns results for Santa Clara in the frpm table.\n   SELECT COUNT(*) FROM frpm WHERE \"County Name\" = 'Santa Clara' AND \"Charter Funding Type\" = 'Locally funded' LIMIT 1;\n\n2. -- RESOLVE [REVISED]: Compare total charter schools in Santa Clara between both tables to see if one is more comprehensive.\n   SELECT (SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND Charter = 1) as school_count, (SELECT COUNT(*) FROM frpm WHERE \"County Name\" = 'Santa Clara' AND \"Charter School (Y/N)\" = 1) as frpm_count LIMIT 1;\n\n3. -- RESOLVE [REVISED]: Check if schools with NULL FundingType in the schools table have a value in the frpm table.\n   SELECT s.CDSCode, f.\"Charter Funding Type\" FROM schools s JOIN frpm f ON s.CDSCode = f.CDSCode WHERE s.FundingType IS NULL AND f.\"Charter Funding Type\" IS NOT NULL LIMIT 20;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check for any other variations of \"Local\" in the funding type columns to ensure 'Locally funded' is the only one.\n   SELECT DISTINCT \"Charter Funding Type\" FROM frpm WHERE \"Charter Funding Type\" LIKE '%Local%' LIMIT 20;\n\n5. -- RESOLVE [LIKE-VS-ENUM]: Check for any other variations of \"Local\" in the schools table funding column.\n   SELECT DISTINCT FundingType FROM schools WHERE FundingType LIKE '%Local%' LIMIT 20;\n\n6. -- SCOPE PROOF: Identify all distinct charter funding types available to define the \"all other\" group accurately.\n   SELECT DISTINCT \"Charter Funding Type\" FROM frpm WHERE \"Charter Funding Type\" IS NOT NULL LIMIT 20;\n\n7. -- SCOPE PROOF: Count schools in Santa Clara that are charters but have NO funding type listed in either table.\n   SELECT COUNT(*) FROM schools s LEFT JOIN frpm f ON s.CDSCode = f.CDSCode WHERE s.County = 'Santa Clara' AND s.Charter = 1 AND s.FundingType IS NULL AND f.\"Charter Funding Type\" IS NULL LIMIT 1;\n\n8. -- DATA INTEGRITY: Verify if \"Directly funded\" is the only other major category in Santa Clara.\n   SELECT \"Charter Funding Type\", COUNT(*) FROM frpm WHERE \"County Name\" = 'Santa Clara' AND \"Charter School (Y/N)\" = 1 GROUP BY 1 LIMIT 20;\n\n9. -- DATA INTEGRITY: Check for any schools marked as Charter=1 but having a funding type that is typically non-charter.\n   SELECT DISTINCT \"Charter Funding Type\" FROM frpm WHERE \"Charter School (Y/N)\" = 1 LIMIT 20;\n\n10. -- CONNECTIVITY LEMMA: Ensure every school in Santa Clara with a funding type in the schools table also exists in the frpm table.\n    SELECT COUNT(*) FROM schools s WHERE s.County = 'Santa Clara' AND s.FundingType IS NOT NULL AND NOT EXISTS (SELECT 1 FROM frpm f WHERE f.CDSCode = s.CDSCode) LIMIT 1;\n\n11. -- VALIDATION: Check if the \"Charter School Number\" is populated for all locally funded schools in Santa Clara.\n    SELECT COUNT(*) FROM frpm WHERE \"County Name\" = 'Santa Clara' AND \"Charter Funding Type\" = 'Locally funded' AND \"Charter School Number\" IS NULL LIMIT 1;\n\n12. -- VALIDATION: Verify that no school is marked as Charter=0 but still has a \"Charter Funding Type\".\n    SELECT COUNT(*) FROM frpm WHERE \"Charter School (Y/N)\" = 0 AND \"Charter Funding Type\" IS NOT NULL LIMIT 1;\n\n13. -- DISTRIBUTIVE CHECK: See if funding types vary by Academic Year in the frpm table, which would affect the ratio.\n    SELECT \"Academic Year\", \"Charter Funding Type\", COUNT(*) FROM frpm WHERE \"County Name\" = 'Santa Clara' GROUP BY 1, 2 LIMIT 20;\n\n14. -- NULL ANALYSIS: Determine if there are any empty strings instead of NULLs in the funding columns.\n    SELECT COUNT(*) FROM frpm WHERE \"Charter Funding Type\" = '' LIMIT 1;\n\n15. -- FINAL SCOPE CHECK: Count total charter schools in Santa Clara that have ANY valid funding type assigned.\n    SELECT COUNT(DISTINCT CDSCode) FROM frpm WHERE \"County Name\" = 'Santa Clara' AND \"Charter School (Y/N)\" = 1 AND \"Charter Funding Type\" IS NOT NULL LIMIT 1;",
+   "phase4": "1. [CONFIRMED] The universe of schools is restricted to charter schools because the denominator specifies \"all other types of charter school funding.\" Query 12 establishes a baseline count for this subset in Santa Clara.\n2. [CONFIRMED] The string used for the county filter is 'Santa Clara'. This was proven by both Query 1 and Query 2.\n3. [REVISED] The assumption that \"locally funded\" would be stored as 'Local' was incorrect; Query 13 returned zero rows, while Query 3 shows the exact string is 'Locally funded'.\n4. [CONFIRMED] The ratio is calculated as (Locally Funded / Other Charter Funding) based on the phrasing \"compared to all other types.\" This logic is supported by the distinct values found in Query 3 and 4.\n5. [REVISED] While both tables contain funding data, `schools` has a high null rate for `FundingType` (Query 7), whereas `frpm` appears more complete for this specific attribute (Query 8). I must investigate if `frpm` is the primary source for funding types.\n6. [CONFIRMED] The Charter status is encoded as an integer where 1 represents a charter school. This was proven by Query 5 and Query 6.\n7. [CONFIRMED] The final output is a percentage ratio, not a list of schools. Logic based on the question's request for \"the ratio in percentage.\"\n\nContrapositive Test: No constraints were added to the hypotheses (such as date ranges or status flags) that were not explicitly mentioned in the original question.",
+   "phase4b": "The original hypothesis holds PARTIALLY. The logic regarding the geography and charter status is correct, but the data source for funding types needs adjustment. Query results revealed a surprising amount of missing data in `schools.FundingType` (over 16,000 nulls), while `frpm.\"Charter Funding Type\"` has better coverage relative to its size. Furthermore, I discovered that using 'Local' as a filter fails, and the exact string 'Locally funded' must be used.\n\nMy updated hypothesis is to calculate the ratio using the `frpm` table as the primary source for funding types, as it appears more reliable for this specific attribute. If a school exists in `schools` but not in `frpm`, I will need to determine if that constitutes a missing \"type\" or an exclusion from the universe.\n\nUpdated Hypothesis:\n- Tables: `frpm` (primary) and `schools` (to verify total charter count).\n- Columns: `\"County Name\"`, `\"Charter School (Y/N)\"`, and `\"Charter Funding Type\"`.\n- Confirmed Values: County = 'Santa Clara', Charter = 1, Funding Type = 'Locally funded'.\n- Join Path: `schools.CDSCode = frpm.CDSCode` (if cross-referencing is required to ensure no charter schools are missed).",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "RESOLVE [REVISED]: Confirm that using the exact string 'Locally funded' returns results for Santa Clara in the frpm table.",
+     "sql": "SELECT COUNT(*) FROM frpm WHERE \"County Name\" = 'Santa Clara' AND \"Charter Funding Type\" = 'Locally funded' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       18
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "RESOLVE [REVISED]: Compare total charter schools in Santa Clara between both tables to see if one is more comprehensive.",
+     "sql": "SELECT (SELECT COUNT(*) FROM schools WHERE County = 'Santa Clara' AND Charter = 1) as school_count, (SELECT COUNT(*) FROM frpm WHERE \"County Name\" = 'Santa Clara' AND \"Charter School (Y/N)\" = 1) as frpm_count LIMIT 1",
+     "status": "success",
+     "columns": [
+      "school_count",
+      "frpm_count"
+     ],
+     "head": [
+      [
+       82,
+       60
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "RESOLVE [REVISED]: Check if schools with NULL FundingType in the schools table have a value in the frpm table.",
+     "sql": "SELECT s.CDSCode, f.\"Charter Funding Type\" FROM schools s JOIN frpm f ON s.CDSCode = f.CDSCode WHERE s.FundingType IS NULL AND f.\"Charter Funding Type\" IS NOT NULL LIMIT 20",
+     "status": "success",
+     "columns": [
+      "CDSCode",
+      "Charter Funding Type"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Check for any other variations of \"Local\" in the funding type columns to ensure 'Locally funded' is the only one.",
+     "sql": "SELECT DISTINCT \"Charter Funding Type\" FROM frpm WHERE \"Charter Funding Type\" LIKE '%Local%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "Charter Funding Type"
+     ],
+     "head": [
+      [
+       "Locally funded"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Check for any other variations of \"Local\" in the schools table funding column.",
+     "sql": "SELECT DISTINCT FundingType FROM schools WHERE FundingType LIKE '%Local%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "FundingType"
+     ],
+     "head": [
+      [
+       "Locally funded"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "SCOPE PROOF: Identify all distinct charter funding types available to define the \"all other\" group accurately.",
+     "sql": "SELECT DISTINCT \"Charter Funding Type\" FROM frpm WHERE \"Charter Funding Type\" IS NOT NULL LIMIT 20",
+     "status": "success",
+     "columns": [
+      "Charter Funding Type"
+     ],
+     "head": [
+      [
+       "Directly funded"
+      ],
+      [
+       "Locally funded"
+      ],
+      [
+       "Not in CS funding model"
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "SCOPE PROOF: Count schools in Santa Clara that are charters but have NO funding type listed in either table.",
+     "sql": "SELECT COUNT(*) FROM schools s LEFT JOIN frpm f ON s.CDSCode = f.CDSCode WHERE s.County = 'Santa Clara' AND s.Charter = 1 AND s.FundingType IS NULL AND f.\"Charter Funding Type\" IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       2
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "DATA INTEGRITY: Verify if \"Directly funded\" is the only other major category in Santa Clara.",
+     "sql": "SELECT \"Charter Funding Type\", COUNT(*) FROM frpm WHERE \"County Name\" = 'Santa Clara' AND \"Charter School (Y/N)\" = 1 GROUP BY 1 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "Charter Funding Type",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       "Directly funded",
+       42
+      ],
+      [
+       "Locally funded",
+       18
+      ]
+     ],
+     "row_count": 2,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "DATA INTEGRITY: Check for any schools marked as Charter=1 but having a funding type that is typically non-charter.",
+     "sql": "SELECT DISTINCT \"Charter Funding Type\" FROM frpm WHERE \"Charter School (Y/N)\" = 1 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "Charter Funding Type"
+     ],
+     "head": [
+      [
+       "Directly funded"
+      ],
+      [
+       "Locally funded"
+      ],
+      [
+       "Not in CS funding model"
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "CONNECTIVITY LEMMA: Ensure every school in Santa Clara with a funding type in the schools table also exists in the frpm table.",
+     "sql": "SELECT COUNT(*) FROM schools s WHERE s.County = 'Santa Clara' AND s.FundingType IS NOT NULL AND NOT EXISTS (SELECT 1 FROM frpm f WHERE f.CDSCode = s.CDSCode) LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       20
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "VALIDATION: Check if the \"Charter School Number\" is populated for all locally funded schools in Santa Clara.",
+     "sql": "SELECT COUNT(*) FROM frpm WHERE \"County Name\" = 'Santa Clara' AND \"Charter Funding Type\" = 'Locally funded' AND \"Charter School Number\" IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "VALIDATION: Verify that no school is marked as Charter=0 but still has a \"Charter Funding Type\".",
+     "sql": "SELECT COUNT(*) FROM frpm WHERE \"Charter School (Y/N)\" = 0 AND \"Charter Funding Type\" IS NOT NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "DISTRIBUTIVE CHECK: See if funding types vary by Academic Year in the frpm table, which would affect the ratio.",
+     "sql": "SELECT \"Academic Year\", \"Charter Funding Type\", COUNT(*) FROM frpm WHERE \"County Name\" = 'Santa Clara' GROUP BY 1, 2 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "Academic Year",
+      "Charter Funding Type",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       "2014-2015",
+       null,
+       349
+      ],
+      [
+       "2014-2015",
+       "Directly funded",
+       42
+      ],
+      [
+       "2014-2015",
+       "Locally funded",
+       18
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "NULL ANALYSIS: Determine if there are any empty strings instead of NULLs in the funding columns.",
+     "sql": "SELECT COUNT(*) FROM frpm WHERE \"Charter Funding Type\" = '' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "FINAL SCOPE CHECK: Count total charter schools in Santa Clara that have ANY valid funding type assigned.",
+     "sql": "SELECT COUNT(DISTINCT CDSCode) FROM frpm WHERE \"County Name\" = 'Santa Clara' AND \"Charter School (Y/N)\" = 1 AND \"Charter Funding Type\" IS NOT NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(DISTINCT CDSCode)"
+     ],
+     "head": [
+      [
+       60
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage3": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "\nYou are the director. You are reviewing the work of a junior analyst who investigated a client\nquestion by running SQL queries against the actual database.\n\nYour analyst is good but not infallible. They may have explored the right tables or the wrong ones.\nWhat they give you is raw data from the database — what columns exist, what values appeared, which\njoins worked, which failed. Your job is to use that evidence to write the final SQL.\n\nRules:\n  1. Use the analyst's query results as your evidence base. Column names, table names, join keys,\n     and filter values from PASSED queries are confirmed to exist in the database — use them exactly\n     as they appeared. Queries that FAILED with \"no such column: X\" confirm that X does not exist.\n  2. The analyst may have queried the wrong table or missed a relevant one. Consider all tables\n     the analyst touched, but also re-read the schema to check if a better path exists.\n  3. Write 5 candidates. Each candidate is your best complete answer under a different\n     interpretation of what the question is asking. The interpretations should differ in\n     meaningful ways: which tables to query, which columns to SELECT, which filters to apply,\n     how to aggregate, or what the question fundamentally means.\n\n       C1 — your primary interpretation: the answer you think is most likely correct based on\n             the question text, evidence, and analyst findings. This should be a complete,\n             production-quality query.\n       C2 — second interpretation: a structurally different reading. Perhaps a different table,\n             a different join path, or a different understanding of which column answers the\n             question (e.g., returning an ID instead of a name, or COUNT instead of a list).\n       C3 — third interpretation: another distinct reading. Could differ in aggregation logic,\n             filter scope, or SELECT shape (e.g., including the metric alongside the result).\n       C4 — fourth interpretation: explores a less obvious reading. Different grouping, an\n             additional condition implied by context, or a different column that could answer\n             the same question.\n       C5 — fifth interpretation, most elaborate: if the question could require comparing a\n             value to an aggregate (average, threshold, rank), use Nested Isolation here:\n               Inner query: compute the aggregate (AVG, MAX, COUNT, etc.)\n               Outer query: filter or join against that aggregate result\n             Pattern: SELECT col FROM t WHERE val > (SELECT AVG(val) FROM t)\n             If no aggregate comparison applies, use the most structurally different approach\n             you can justify.\n\n     Each candidate must be a complete, standalone, executable query — not a fragment or\n     simplification. Five variations of the same WHERE clause with minor tweaks is not five\n     interpretations.\n  4. Each candidate must be a complete, standalone, executable SQL query.\n  5. Different interpretations may reasonably differ in SELECT shape. For example, one\n     interpretation might return only COUNT(*), another might return COUNT(*) with the GROUP BY\n     column, and another might return the actual rows. Let each interpretation dictate its own\n     SELECT — do not artificially restrict columns across all five candidates.\n  6. Use LIMIT only when the question asks for a specific number of results (\"top 3\", \"the one\n     with the highest\"). If the question asks for a list without a count, do not use LIMIT.\n  7. You may use window functions (RANK, ROW_NUMBER, etc.) when the question requires ranking\n     within a group or ordering within a partition.\n\n  Proof-by-Cases principle:\n    C1-C5 must represent genuinely different interpretations of the question. If the correct\n    answer exists, at least one interpretation MUST capture it. Each must be structurally\n    distinct — different tables, joins, groupings, SELECT columns, or filter logic.\n\n  Exclusion Principle:\n    Every element in your SQL must be justified by either:\n      (a) the question text explicitly requiring it, or\n      (b) a PASSED query from the analyst's work confirming it exists and is relevant.\n    Do not add columns \"for context\", filters \"for safety\" (IS NOT NULL, status checks),\n    or joins \"just in case\". Unjustified additions are unproven conjectures — they narrow\n    or widen the result set beyond what was asked and cause failures.\n\n  Evidence hierarchy:\n    - PASSED queries with non-zero rows: proven facts. Use the exact column names, table\n      names, and values as they appeared.\n    - FAILED queries (errors): proven non-existence. The column or table does NOT exist\n      in that form. Do not use it.\n    - Zero-row PASSED queries: the filter combination is valid syntax but matches nothing.\n      Consider whether the filter is too restrictive.\n    - [OPEN-VALUE] / [WRONG-TABLE] tags from the analyst: unresolved conjectures. Prefer\n      alternatives that were actually confirmed.\n\nSQLite rules — non-negotiable:\n  - Column names with spaces or special characters MUST be double-quoted: \"Order Date\"\n  - Every query must begin with SELECT. Never use WITH ... AS (CTEs).\n  - Use whatever SQL structure best serves each interpretation: subqueries, window functions,\n    derived tables, or flat SELECT/JOIN/GROUP BY. The only constraint is correctness.\n  - Any query that joins two or more tables MUST assign a short alias to every table\n    (e.g. FROM movies m JOIN ratings r ON m.movie_id = r.movie_id) and MUST qualify every\n    column reference with its alias (e.g. m.movie_title, not just movie_title). Unqualified\n    column references in multi-table queries are ambiguous and will cause runtime errors.\n\nOutput format:\n## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: [what this reading assumes about the question]\nSELECT t1.col FROM t1 JOIN t2 ON t1.id = t2.fk WHERE t1.filter = value\n\n2. -- Second interpretation: [how this differs from C1]\nSELECT t1.id FROM t1 WHERE t1.different_filter = value\n\n3. -- Third interpretation: [what this captures that C1-C2 miss]\nSELECT t1.col, COUNT(*) FROM t1 GROUP BY t1.col\n\n4. -- Fourth interpretation: [alternative approach]\nSELECT t1.col FROM t1 JOIN t3 ON t1.id = t3.fk WHERE t3.filter = value\n\n5. -- Fifth interpretation: [most elaborate or aggregate-comparison approach]\nSELECT t1.col FROM t1 WHERE t1.val > (SELECT AVG(t2.val) FROM t1 t2)\n\nFormat rules:\n  - Numbered 1 through 5 exactly.\n  - Candidate 1 MUST start with \"1. --\" on its own line — never output the first candidate\n    as raw unnumbered SQL.\n  - Comment on same line as the number, starting with --.\n  - SQL starts on the next line, beginning with SELECT.\n  - Blank line between candidates.\n  - No markdown code fences. No bold. No extra headers.\n",
+   "user_prompt": "Question: What is the ratio in percentage of Santa Clara County schools that are locally funded compared to all other types of charter school funding?\n\nDatabase: california_schools\n\n---\nANALYST WORK PRODUCT\n\nStage 1 — What was checked and what was found:\n1. Checked: EXISTENCE PROOF: Confirm how Santa Clara County is represented in the schools table.\n   Result: County: Santa Clara\n\n2. Checked: EXISTENCE PROOF: Confirm how Santa Clara County is represented in the frpm table.\n   Result: County Name: Santa Clara\n\n3. Checked: EXISTENCE PROOF: Identify all possible values for funding types in the schools table to find \"locally funded\".\n   Result: FundingType: None\n   (4 rows total)\n\n4. Checked: EXISTENCE PROOF: Identify all possible values for charter funding types in the frpm table.\n   Result: Charter Funding Type: Directly funded\n   (4 rows total)\n\n5. Checked: EXISTENCE PROOF: Verify the encoding of the Charter flag in the schools table.\n   Result: Charter: None\n   (3 rows total)\n\n6. Checked: EXISTENCE PROOF: Verify the encoding of the Charter flag in the frpm table.\n   Result: Charter School (Y/N): 1\n   (3 rows total)\n\n7. Checked: NULL-COUNT PROOF: Check suitability of FundingType in schools for aggregation.\n   Result: nulls: 16044 | total: 17686\n\n8. Checked: NULL-COUNT PROOF: Check suitability of Charter Funding Type in frpm for aggregation.\n   Result: nulls: 8819 | total: 9986\n\n9. Checked: CONNECTIVITY LEMMA: Verify join key overlap between schools and frpm on CDSCode.\n   Result: CDSCode: 01100170000000\n   (5 rows total)\n\n10. Checked: CONNECTIVITY LEMMA: Other side of the join for schools to frpm.\n   Result: CDSCode: 01100170109835\n   (5 rows total)\n\n11. Checked: AXIOMATIC NEUTRALITY: Establish a baseline count of all schools in Santa Clara regardless of funding or charter status.\n   Result: COUNT(*): 780\n\n12. Checked: SCOPE PROOF: Count total charter schools in Santa Clara to establish the universe for the ratio.\n   Result: COUNT(*): 82\n\n13. Checked: SCOPE PROOF: Count locally funded schools in Santa Clara to verify the numerator exists.\n   Result: COUNT(*): 0\n\n14. Checked: ANNOTATION LEMMA: Determine if \"Charter School Number\" is a meaningful identifier or just a sequence.\n   Result: Charter School Number: 0728\n   (20 rows total)\n\n15. Checked: SCOPE PROOF: Check for any schools that are marked as Charter=1 but have no FundingType listed.\n   Result: COUNT(*): 127\n\n\nStage 2 — Hypothesis verdict (Phase 4):\n1. [CONFIRMED] The universe of schools is restricted to charter schools because the denominator specifies \"all other types of charter school funding.\" Query 12 establishes a baseline count for this subset in Santa Clara.\n2. [CONFIRMED] The string used for the county filter is 'Santa Clara'. This was proven by both Query 1 and Query 2.\n3. [REVISED] The assumption that \"locally funded\" would be stored as 'Local' was incorrect; Query 13 returned zero rows, while Query 3 shows the exact string is 'Locally funded'.\n4. [CONFIRMED] The ratio is calculated as (Locally Funded / Other Charter Funding) based on the phrasing \"compared to all other types.\" This logic is supported by the distinct values found in Query 3 and 4.\n5. [REVISED] While both tables contain funding data, `schools` has a high null rate for `FundingType` (Query 7), whereas `frpm` appears more complete for this specific attribute (Query 8). I must investigate if `frpm` is the primary source for funding types.\n6. [CONFIRMED] The Charter status is encoded as an integer where 1 represents a charter school. This was proven by Query 5 and Query 6.\n7. [CONFIRMED] The final output is a percentage ratio, not a list of schools. Logic based on the question's request for \"the ratio in percentage.\"\n\nContrapositive Test: No constraints were added to the hypotheses (such as date ranges or status flags) that were not explicitly mentioned in the original question.\n\nStage 2 — Winning hypothesis (Phase 4b):\nThe original hypothesis holds PARTIALLY. The logic regarding the geography and charter status is correct, but the data source for funding types needs adjustment. Query results revealed a surprising amount of missing data in `schools.FundingType` (over 16,000 nulls), while `frpm.\"Charter Funding Type\"` has better coverage relative to its size. Furthermore, I discovered that using 'Local' as a filter fails, and the exact string 'Locally funded' must be used.\n\nMy updated hypothesis is to calculate the ratio using the `frpm` table as the primary source for funding types, as it appears more reliable for this specific attribute. If a school exists in `schools` but not in `frpm`, I will need to determine if that constitutes a missing \"type\" or an exclusion from the universe.\n\nUpdated Hypothesis:\n- Tables: `frpm` (primary) and `schools` (to verify total charter count).\n- Columns: `\"County Name\"`, `\"Charter School (Y/N)\"`, and `\"Charter Funding Type\"`.\n- Confirmed Values: County = 'Santa Clara', Charter = 1, Funding Type = 'Locally funded'.\n- Join Path: `schools.CDSCode = frpm.CDSCode` (if cross-referencing is required to ensure no charter schools are missed).\n\nStage 2 — Confirmation checks and what was found:\n1. Checked: RESOLVE [REVISED]: Confirm that using the exact string 'Locally funded' returns results for Santa Clara in the frpm table.\n   Result: COUNT(*): 18\n\n2. Checked: RESOLVE [REVISED]: Compare total charter schools in Santa Clara between both tables to see if one is more comprehensive.\n   Result: school_count: 82 | frpm_count: 60\n\n3. Checked: RESOLVE [REVISED]: Check if schools with NULL FundingType in the schools table have a value in the frpm table.\n   Result: (no rows returned)\n\n4. Checked: RESOLVE [LIKE-VS-ENUM]: Check for any other variations of \"Local\" in the funding type columns to ensure 'Locally funded' is the only one.\n   Result: Charter Funding Type: Locally funded\n\n5. Checked: RESOLVE [LIKE-VS-ENUM]: Check for any other variations of \"Local\" in the schools table funding column.\n   Result: FundingType: Locally funded\n\n6. Checked: SCOPE PROOF: Identify all distinct charter funding types available to define the \"all other\" group accurately.\n   Result: Charter Funding Type: Directly funded\n   (3 rows total)\n\n7. Checked: SCOPE PROOF: Count schools in Santa Clara that are charters but have NO funding type listed in either table.\n   Result: COUNT(*): 2\n\n8. Checked: DATA INTEGRITY: Verify if \"Directly funded\" is the only other major category in Santa Clara.\n   Result: Charter Funding Type: Directly funded | COUNT(*): 42\n   (2 rows total)\n\n9. Checked: DATA INTEGRITY: Check for any schools marked as Charter=1 but having a funding type that is typically non-charter.\n   Result: Charter Funding Type: Directly funded\n   (3 rows total)\n\n10. Checked: CONNECTIVITY LEMMA: Ensure every school in Santa Clara with a funding type in the schools table also exists in the frpm table.\n   Result: COUNT(*): 20\n\n11. Checked: VALIDATION: Check if the \"Charter School Number\" is populated for all locally funded schools in Santa Clara.\n   Result: COUNT(*): 0\n\n12. Checked: VALIDATION: Verify that no school is marked as Charter=0 but still has a \"Charter Funding Type\".\n   Result: COUNT(*): 0\n\n13. Checked: DISTRIBUTIVE CHECK: See if funding types vary by Academic Year in the frpm table, which would affect the ratio.\n   Result: Academic Year: 2014-2015 | Charter Funding Type: None | COUNT(*): 349\n   (3 rows total)\n\n14. Checked: NULL ANALYSIS: Determine if there are any empty strings instead of NULLs in the funding columns.\n   Result: COUNT(*): 0\n\n15. Checked: FINAL SCOPE CHECK: Count total charter schools in Santa Clara that have ANY valid funding type assigned.\n   Result: COUNT(DISTINCT CDSCode): 60\n\n\n---\nWrite 5 candidate SQL queries sweeping from the least to the most work required to answer the question.",
+   "response": "## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: Calculate the ratio of locally funded charter schools to all other types of charter funding in Santa Clara County using the frpm table, which the analyst identified as more reliable for funding data.\nSELECT \n  CAST(SUM(CASE WHEN f.\"Charter Funding Type\" = 'Locally funded' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / \n  NULLIF(SUM(CASE WHEN f.\"Charter Funding Type\" != 'Locally funded' THEN 1 ELSE 0 END), 0)\nFROM frpm f\nWHERE f.\"County Name\" = 'Santa Clara' \n  AND f.\"Charter School (Y/N)\" = 1;\n\n2. -- Second interpretation: Interpret \"ratio in percentage\" as the proportion of locally funded schools out of the total population of charter schools in Santa Clara County.\nSELECT \n  CAST(SUM(CASE WHEN f.\"Charter Funding Type\" = 'Locally funded' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / \n  COUNT(*)\nFROM frpm f\nWHERE f.\"County Name\" = 'Santa Clara' \n  AND f.\"Charter School (Y/N)\" = 1;\n\n3. -- Third interpretation: Use a join between schools and frpm, using the schools table for geography and the frpm table for funding type and charter status.\nSELECT \n  CAST(SUM(CASE WHEN f.\"Charter Funding Type\" = 'Locally funded' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / \n  NULLIF(SUM(CASE WHEN f.\"Charter Funding Type\" != 'Locally funded' THEN 1 ELSE 0 END), 0)\nFROM schools s\nJOIN frpm f ON s.CDSCode = f.CDSCode\nWHERE s.County = 'Santa Clara' \n  AND f.\"Charter School (Y/N)\" = 1;\n\n4. -- Fourth interpretation: Use only the schools table, assuming that any school with a FundingType is a charter school and using its specific funding column.\nSELECT \n  CAST(SUM(CASE WHEN s.FundingType = 'Locally funded' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / \n  NULLIF(SUM(CASE WHEN s.FundingType != 'Locally funded' THEN 1 ELSE 0 END), 0)\nFROM schools s\nWHERE s.County = 'Santa Clara' \n  AND s.FundingType IS NOT NULL;\n\n5. -- Fifth interpretation: Use Nested Isolation to compute the numerator and denominator as separate scalar values before calculating the final percentage ratio.\nSELECT \n  (CAST(num.cnt AS FLOAT) * 100.0 / den.cnt)\nFROM \n  (SELECT COUNT(*) as cnt FROM frpm WHERE \"County Name\" = 'Santa Clara' AND \"Charter School (Y/N)\" = 1 AND \"Charter Funding Type\" = 'Locally funded') num,\n  (SELECT COUNT(*) as cnt FROM frpm WHERE \"County Name\" = 'Santa Clara' AND \"Charter School (Y/N)\" = 1 AND \"Charter Funding Type\" != 'Locally funded') den;",
+   "candidates": [
+    {
+     "n": 1,
+     "comment": "Primary interpretation: Calculate the ratio of locally funded charter schools to all other types of charter funding in Santa Clara County using the frpm table, which the analyst identified as more reliable for funding data.",
+     "sql": "SELECT \n  CAST(SUM(CASE WHEN f.\"Charter Funding Type\" = 'Locally funded' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / \n  NULLIF(SUM(CASE WHEN f.\"Charter Funding Type\" != 'Locally funded' THEN 1 ELSE 0 END), 0)\nFROM frpm f\nWHERE f.\"County Name\" = 'Santa Clara' \n  AND f.\"Charter School (Y/N)\" = 1;",
+     "status": "success",
+     "columns": [
+      "CAST(SUM(CASE WHEN f.\"Charter Funding Type\" = 'Locally funded' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / \n  NULLIF(SUM(CASE WHEN f.\"Charter Funding Type\" != 'Locally funded' THEN 1 ELSE 0 END), 0)"
+     ],
+     "rows": [
+      [
+       42.857142857142854
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 2,
+     "comment": "Second interpretation: Interpret \"ratio in percentage\" as the proportion of locally funded schools out of the total population of charter schools in Santa Clara County.",
+     "sql": "SELECT \n  CAST(SUM(CASE WHEN f.\"Charter Funding Type\" = 'Locally funded' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / \n  COUNT(*)\nFROM frpm f\nWHERE f.\"County Name\" = 'Santa Clara' \n  AND f.\"Charter School (Y/N)\" = 1;",
+     "status": "success",
+     "columns": [
+      "CAST(SUM(CASE WHEN f.\"Charter Funding Type\" = 'Locally funded' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / \n  COUNT(*)"
+     ],
+     "rows": [
+      [
+       30.0
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 3,
+     "comment": "Third interpretation: Use a join between schools and frpm, using the schools table for geography and the frpm table for funding type and charter status.",
+     "sql": "SELECT \n  CAST(SUM(CASE WHEN f.\"Charter Funding Type\" = 'Locally funded' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / \n  NULLIF(SUM(CASE WHEN f.\"Charter Funding Type\" != 'Locally funded' THEN 1 ELSE 0 END), 0)\nFROM schools s\nJOIN frpm f ON s.CDSCode = f.CDSCode\nWHERE s.County = 'Santa Clara' \n  AND f.\"Charter School (Y/N)\" = 1;",
+     "status": "success",
+     "columns": [
+      "CAST(SUM(CASE WHEN f.\"Charter Funding Type\" = 'Locally funded' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / \n  NULLIF(SUM(CASE WHEN f.\"Charter Funding Type\" != 'Locally funded' THEN 1 ELSE 0 END), 0)"
+     ],
+     "rows": [
+      [
+       42.857142857142854
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 4,
+     "comment": "Fourth interpretation: Use only the schools table, assuming that any school with a FundingType is a charter school and using its specific funding column.",
+     "sql": "SELECT \n  CAST(SUM(CASE WHEN s.FundingType = 'Locally funded' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / \n  NULLIF(SUM(CASE WHEN s.FundingType != 'Locally funded' THEN 1 ELSE 0 END), 0)\nFROM schools s\nWHERE s.County = 'Santa Clara' \n  AND s.FundingType IS NOT NULL;",
+     "status": "success",
+     "columns": [
+      "CAST(SUM(CASE WHEN s.FundingType = 'Locally funded' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / \n  NULLIF(SUM(CASE WHEN s.FundingType != 'Locally funded' THEN 1 ELSE 0 END), 0)"
+     ],
+     "rows": [
+      [
+       33.333333333333336
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 5,
+     "comment": "Fifth interpretation: Use Nested Isolation to compute the numerator and denominator as separate scalar values before calculating the final percentage ratio.",
+     "sql": "SELECT \n  (CAST(num.cnt AS FLOAT) * 100.0 / den.cnt)\nFROM \n  (SELECT COUNT(*) as cnt FROM frpm WHERE \"County Name\" = 'Santa Clara' AND \"Charter School (Y/N)\" = 1 AND \"Charter Funding Type\" = 'Locally funded') num,\n  (SELECT COUNT(*) as cnt FROM frpm WHERE \"County Name\" = 'Santa Clara' AND \"Charter School (Y/N)\" = 1 AND \"Charter Funding Type\" != 'Locally funded') den;",
+     "status": "success",
+     "columns": [
+      "(CAST(num.cnt AS FLOAT) * 100.0 / den.cnt)"
+     ],
+     "rows": [
+      [
+       42.857142857142854
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    }
+   ],
+   "chosen": 1,
+   "gold_result": {
+    "columns": [
+     "CAST(SUM(CASE WHEN FundingType = 'Locally funded' THEN 1 ELSE 0 END) AS REAL) * 100 / SUM(CASE WHEN FundingType != 'Locally funded' THEN 1 ELSE 0 END)"
+    ],
+    "rows": [
+     [
+      33.333333333333336
+     ]
+    ],
+    "row_count": 1
+   }
+  }
+ },
+ "noev_elapsed_s": 485.0,
+ "noev_error": null
+}

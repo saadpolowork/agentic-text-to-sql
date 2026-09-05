@@ -1,0 +1,1563 @@
+{
+ "db_id": "superhero",
+ "question": "Which superhero has the most durability published by Dark Horse Comics?",
+ "evidence": "which superhero refers to superhero_name; most durability refers to MAX(attribute_value) WHERE attribute_name = 'durability'; published by Dark Horse Comics refers to publisher_name = 'Dark Horse Comics';",
+ "gold_sql": "SELECT T1.superhero_name FROM superhero AS T1 INNER JOIN hero_attribute AS T2 ON T1.id = T2.hero_id INNER JOIN attribute AS T3 ON T3.id = T2.attribute_id INNER JOIN publisher AS T4 ON T4.id = T1.publisher_id WHERE T4.publisher_name = 'Dark Horse Comics' AND T3.attribute_name = 'Durability' ORDER BY T2.attribute_value DESC LIMIT 1",
+ "models": {
+  "stage1": "google/gemma-4-31b",
+  "stage2": "google/gemma-4-31b",
+  "stage3": "google/gemma-4-31b"
+ },
+ "stages": {
+  "stage1": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Today is your first day at a new company.\n\nNormally this work takes three days. You do not have three days. You have to do it all today.\n\nHere is how you think through a new client question:\n\nPHASE 1 — Before you look at anything:\nYou read the question and evidence first, with the schema face-down. You write out every question\nyou would want answered and every assumption you are making. You are a philosopher — you think in\nwho, what, when, where, by whom, for whom. You think in counter-proofs. What would make an\nassumption wrong? What encoding or edge case breaks the obvious reading? Stating a wrong assumption\nexplicitly is more honest and useful than a vague non-answer.\n\nPHASE 2 — You look at the schema:\nThe data dictionary arrives: table names, column names, types, primary keys, and foreign key\nrelationships. You do NOT get statistics — no min, max, null counts, or sample values. That is\nwhat Phase 3 is for. Some of your Phase 1 assumptions will be confirmed. Some will be wrong. Some\nnew questions will appear that you could not have thought of without seeing the actual column names.\nYou update every assumption. You tag each question.\n\nPHASE 3 — You write exploratory SQL:\nYou have database access. You are excited and thorough. You know that being new means you earn trust\nby being rigorous, not reckless. You have two phases of thinking behind you — now you turn that into\nexploratory SQL. Write at least 15 queries. The system will reject outputs with fewer than 5 —\nthose records will be skipped entirely and the question will not advance to the next stage.\n\nYou have six proof obligations:\n\n1. EXISTENCE LEMMA (DISTINCT probes):\n   For every categorical column you plan to filter on, run SELECT DISTINCT col FROM table LIMIT 20.\n   This is a direct proof of existence — it proves which values actually live in the database.\n   Without this proof, any filter using that column is an ungrounded conjecture. The system will\n   treat unproven filter values as errors in Stage 2.\n\n2. CONNECTIVITY LEMMA (join verification):\n   Before writing any multi-table JOIN, prove the join path works. Run a query on each side of the\n   join key: SELECT DISTINCT join_col FROM table_a LIMIT 5 and SELECT DISTINCT join_col FROM table_b\n   LIMIT 5. If both return values and they overlap, the join is proven. If either returns zero rows\n   or different types, the join is disproven — do not use it.\n\n3. AXIOMATIC NEUTRALITY (contrapositive for filters):\n   Do not add status, active/inactive, or any other filter unless the question explicitly mentions\n   it. Assume the contrapositive: if the question does not mention a constraint, its absence is\n   correct until you prove otherwise. Run at least one query WITHOUT any assumed filter to establish\n   the unfiltered baseline.\n\n4. COLUMN SUITABILITY PROOFS (null-count & scope):\n   Before using any column for aggregation (COUNT, AVG, SUM, MAX, MIN), run a null-count query:\n   SELECT COUNT(*) - COUNT(col) as nulls, COUNT(*) as total FROM table.\n   If nulls exceed 50% of total, that column is statistically unsuitable as a primary metric —\n   look for alternatives. After identifying your primary filter value, run TWO scope queries:\n   (a) one query WITHOUT the filter — note the total row count (unfiltered universe).\n   (b) one query WITH the filter — note the filtered row count.\n   Compare: if filtered count equals unfiltered count, the filter is a no-op and likely wrong.\n   If filtered count is zero, the value does not exist. Both indicate a scope mismatch.\n\n5. ANNOTATION LEMMA (semantic mapping of opaque columns):\n   If the schema contains column names that are short codes, single letters, abbreviations, or\n   numeric identifiers (e.g., col1, X, stat, code_a), you cannot assume their meaning from the\n   name alone. For every such opaque column that could be relevant to the question, run:\n   SELECT DISTINCT col FROM table LIMIT 20\n   Then annotate each with its apparent meaning based on the values returned. Format your comment:\n   \"ANNOTATION LEMMA: col_name appears to be [description] (values: val1, val2, val3)\"\n   This is a direct proof of semantic identity — without it, any use of an opaque column is an\n   ungrounded assumption about what the column contains.\n\n6. JOIN VERIFICATION (non-key joins):\n   The schema marks primary keys [PK] and foreign keys [FK]. If you plan to join two tables on\n   a column that is NOT marked as a PK or FK, you must prove the join is valid by querying both\n   sides: SELECT DISTINCT col FROM table_a LIMIT 5 and SELECT DISTINCT col FROM table_b LIMIT 5.\n   If the values do not overlap, the join is invalid. PK/FK joins are pre-verified by the schema.\n\nAdditional rules:\n- Multi-part question decomposition: Before writing any Phase 1 assumptions, read the\n  question and ask: does it contain multiple distinct sub-questions? A multi-part question\n  typically uses connectors like \"and\", \"also\", \"as well as\", or asks for two different\n  pieces of information in one sentence (e.g. \"What is X? What is Y for Z?\"). If yes,\n  list each sub-question separately in Phase 1 and treat them as independent proof obligations.\n  Your Phase 3 queries must cover every part — a query that only answers one part of a\n  multi-part question is incomplete. The final SQL must return all parts in a single query\n  (using JOIN, subquery, or multiple SELECT expressions as appropriate).\n- Cover all tables that could relate to the question, not just the most obvious one.\n- SELECT only the columns needed for each specific check — no extra \"context\" columns.\n- Identifier Precision: Determine whether the question asks for a primary identifier\n  (ID, code, number) or a descriptive label (name, title, description). If both columns exist\n  side by side in the same table, run a DISTINCT query on each. Your Phase 1 assumptions must\n  explicitly state which column type the question wants. This prevents the Director from\n  guessing at the SELECT column later.\n- Each query has exactly one SQL comment (-- ...) that is a single complete sentence explaining\n  why this specific piece of information matters for answering the client question.\n- Always use LIMIT. Check both heads and tails for any table you are uncertain about.\n- Do NOT write the final answer query — that comes after you see what these return.\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\nA numbered list. For each item: state the question, then immediately state your current assumption.\nAssumptions can be wrong — that is expected and useful.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, explaining why these are the\nright questions to ask.\n\n## PHASE 2 — SCHEMA REVIEW\nA numbered list. For each item from Phase 1, mark it with exactly one tag:\n  [CONFIRMED] — the profile supports your Phase 1 assumption\n  [REVISED]   — you need to update your assumption based on what you see\n  [NEW]       — a question that did not exist in Phase 1, raised by the schema or statistics\n  [DROPPED]   — this question is no longer relevant given what the profile shows\n\nAfter the tag, give a brief one-sentence reason.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, describing what the profile\nrevealed and what still requires direct database investigation.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\nA numbered list of SQL queries. Minimum 15 queries.\n\nSQLite rules — this is non-negotiable:\n- The database engine is SQLite. Write only SQL that SQLite supports.\n- Column names that contain spaces, parentheses, or special characters MUST be\n  wrapped in double quotes. Example: \"County Name\", \"Free Meal Count (K-12)\".\n  Never write an unquoted column name that contains a space.\n- Do not use window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.).\n- Always use LIMIT.\n- Do NOT write the final answer query.\n\nOutput format for Phase 3 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the department_type column.\n   SELECT DISTINCT department_type FROM departments LIMIT 20;\n\n2. -- SCOPE CHECK: Establish the time range covered by the data.\n   SELECT MIN(hire_date), MAX(hire_date) FROM employees LIMIT 1;\n\n3. -- NULL-COUNT PROOF: Verify salary column suitability for aggregation.\n   SELECT COUNT(*) - COUNT(salary) as nulls, COUNT(*) as total FROM employees LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between employees and departments.\n   SELECT DISTINCT department_id FROM employees LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Other side of the join.\n   SELECT DISTINCT id FROM departments LIMIT 5;\n\n6. -- ANNOTATION LEMMA: Determine what opaque column 'dept_code' actually contains.\n   SELECT DISTINCT dept_code FROM departments LIMIT 20;\n\n7. -- JOIN VERIFICATION: Verify non-key join between employees.role and roles.role_name.\n   SELECT DISTINCT role FROM employees LIMIT 5;\n\n8. -- SCOPE PROOF: Unfiltered universe count for the target table.\n   SELECT COUNT(*) FROM employees LIMIT 1;\n\n9. -- SCOPE PROOF: Filtered count — verify filter narrows to expected scope.\n   SELECT COUNT(*) FROM employees WHERE department_type = 'Engineering' LIMIT 1;",
+   "user_prompt": "A new client question just arrived on your desk.\n\nQuestion: Which superhero has the most durability published by Dark Horse Comics?\nEvidence: which superhero refers to superhero_name; most durability refers to MAX(attribute_value) WHERE attribute_name = 'durability'; published by Dark Horse Comics refers to publisher_name = 'Dark Horse Comics';\n\nDatabase: superhero\n\nSchema (table names, column names, types, primary keys, foreign keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nWork through all three phases now.",
+   "response": "## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\n1. Which column identifies the superhero? Assumption: The question asks for a descriptive label (name) rather than a numeric ID.\n2. How is \"durability\" stored in the database? Assumption: It is a specific record within an attributes table, not a standalone column in the hero table.\n3. Is \"Dark Horse Comics\" the exact string used for the publisher? Assumption: The filter will be an exact match on the name 'Dark Horse Comics'.\n4. How are durability values represented? Assumption: Durability is stored as an integer that can be compared using MAX().\n5. Are there any status filters (e.g., active/inactive) required? Assumption: No such filters exist or are needed unless specified.\n6. What happens if multiple superheroes share the same maximum durability? Assumption: The query should return all who tie for the maximum.\n\nREASONING:\nThe primary goal is to link a specific publisher to a specific attribute value.\nI must determine if \"durability\" is a column or a row in a key-value table.\nIdentifying the exact string for the publisher prevents filter mismatches.\nConfirming the data type of durability ensures that MAX() is mathematically valid.\nChecking for ties ensures the result set is complete and not arbitrarily truncated.\n\n## PHASE 2 — SCHEMA REVIEW\n1. [CONFIRMED] The `superhero` table contains `superhero_name`, which serves as the descriptive label.\n2. [CONFIRMED] Durability is stored in the `attribute` table (`attribute_name`) and linked via `hero_attribute`.\n3. [CONFIRMED] The `publisher` table has a `publisher_name` column for filtering 'Dark Horse Comics'.\n4. [CONFIRMED] The `hero_attribute` table stores `attribute_value` as an integer, supporting MAX().\n5. [CONFIRMED] No status or activity columns are present in the schema to filter on.\n6. [NEW] I need to verify if `publisher_id` in the `superhero` table is ever null for these heroes.\n\nREASONING:\nThe schema confirms a normalized structure where attributes and publishers are separate tables.\nJoin paths are clearly defined via foreign keys between superhero, publisher, and hero_attribute.\nThe use of an intermediary table for attributes means I must join three tables to get the result.\nI have confirmed that durability is a value associated with an attribute ID rather than a column.\nDirect database probes are now required to verify the existence of specific string values.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\n1. -- EXISTENCE LEMMA: Confirm 'Dark Horse Comics' exists in the publisher table.\nSELECT DISTINCT publisher_name FROM publisher WHERE publisher_name = 'Dark Horse Comics' LIMIT 20;\n\n2. -- EXISTENCE LEMMA: Confirm 'durability' exists as a valid attribute name.\nSELECT DISTINCT attribute_name FROM attribute WHERE attribute_name = 'durability' LIMIT 20;\n\n3. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline of all superheroes in the system.\nSELECT COUNT(*) FROM superhero LIMIT 1;\n\n4. -- COLUMN SUITABILITY PROOF: Check for nulls in attribute_value to ensure it is a reliable metric.\nSELECT COUNT(*) - COUNT(attribute_value) as nulls, COUNT(*) as total FROM hero_attribute LIMIT 1;\n\n5. -- SCOPE PROOF: Count the unfiltered universe of superheroes.\nSELECT COUNT(*) FROM superhero LIMIT 1;\n\n6. -- SCOPE PROOF: Count superheroes specifically published by 'Dark Horse Comics' to verify filter scope.\nSELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'Dark Horse Comics' LIMIT 1;\n\n7. -- SCOPE PROOF: Verify how many attributes are named 'durability'.\nSELECT COUNT(*) FROM attribute WHERE attribute_name = 'durability' LIMIT 1;\n\n8. -- SCOPE PROOF: Verify the number of superhero-attribute mappings for durability.\nSELECT COUNT(*) FROM hero_attribute JOIN attribute ON hero_attribute.attribute_id = attribute.id WHERE attribute.attribute_name = 'durability' LIMIT 1;\n\n9. -- CONNECTIVITY LEMMA: Prove join path between superhero and publisher.\nSELECT DISTINCT publisher_id FROM superhero LIMIT 5;\n\n10. -- CONNECTIVITY LEMMA: Other side of the superhero-publisher join.\nSELECT DISTINCT id FROM publisher LIMIT 5;\n\n11. -- CONNECTIVITY LEMMA: Prove join path between superhero and hero_attribute.\nSELECT DISTINCT id FROM superhero LIMIT 5;\n\n12. -- CONNECTIVITY LEMMA: Other side of the superhero-hero_attribute join.\nSELECT DISTINCT hero_id FROM hero_attribute LIMIT 5;\n\n13. -- CONNECTIVITY LEMMA: Prove join path between attribute and hero_attribute.\nSELECT DISTINCT id FROM attribute LIMIT 5;\n\n14. -- CONNECTIVITY LEMMA: Other side of the attribute-hero_attribute join.\nSELECT DISTINCT attribute_id FROM hero_attribute LIMIT 5;\n\n15. -- EXISTENCE LEMMA: Check for variations of 'Dark Horse' in publisher names to avoid missing data.\nSELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Dark Horse%' LIMIT 20;",
+   "phase1": "1. Which column identifies the superhero? Assumption: The question asks for a descriptive label (name) rather than a numeric ID.\n2. How is \"durability\" stored in the database? Assumption: It is a specific record within an attributes table, not a standalone column in the hero table.\n3. Is \"Dark Horse Comics\" the exact string used for the publisher? Assumption: The filter will be an exact match on the name 'Dark Horse Comics'.\n4. How are durability values represented? Assumption: Durability is stored as an integer that can be compared using MAX().\n5. Are there any status filters (e.g., active/inactive) required? Assumption: No such filters exist or are needed unless specified.\n6. What happens if multiple superheroes share the same maximum durability? Assumption: The query should return all who tie for the maximum.\n\nREASONING:\nThe primary goal is to link a specific publisher to a specific attribute value.\nI must determine if \"durability\" is a column or a row in a key-value table.\nIdentifying the exact string for the publisher prevents filter mismatches.\nConfirming the data type of durability ensures that MAX() is mathematically valid.\nChecking for ties ensures the result set is complete and not arbitrarily truncated.",
+   "phase2": "1. [CONFIRMED] The `superhero` table contains `superhero_name`, which serves as the descriptive label.\n2. [CONFIRMED] Durability is stored in the `attribute` table (`attribute_name`) and linked via `hero_attribute`.\n3. [CONFIRMED] The `publisher` table has a `publisher_name` column for filtering 'Dark Horse Comics'.\n4. [CONFIRMED] The `hero_attribute` table stores `attribute_value` as an integer, supporting MAX().\n5. [CONFIRMED] No status or activity columns are present in the schema to filter on.\n6. [NEW] I need to verify if `publisher_id` in the `superhero` table is ever null for these heroes.\n\nREASONING:\nThe schema confirms a normalized structure where attributes and publishers are separate tables.\nJoin paths are clearly defined via foreign keys between superhero, publisher, and hero_attribute.\nThe use of an intermediary table for attributes means I must join three tables to get the result.\nI have confirmed that durability is a value associated with an attribute ID rather than a column.\nDirect database probes are now required to verify the existence of specific string values.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "EXISTENCE LEMMA: Confirm 'Dark Horse Comics' exists in the publisher table.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name = 'Dark Horse Comics' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Dark Horse Comics"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "EXISTENCE LEMMA: Confirm 'durability' exists as a valid attribute name.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name = 'durability' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "AXIOMATIC NEUTRALITY: Establish the unfiltered baseline of all superheroes in the system.",
+     "sql": "SELECT COUNT(*) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in attribute_value to ensure it is a reliable metric.",
+     "sql": "SELECT COUNT(*) - COUNT(attribute_value) as nulls, COUNT(*) as total FROM hero_attribute LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       3738
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "SCOPE PROOF: Count the unfiltered universe of superheroes.",
+     "sql": "SELECT COUNT(*) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "SCOPE PROOF: Count superheroes specifically published by 'Dark Horse Comics' to verify filter scope.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'Dark Horse Comics' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       19
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "SCOPE PROOF: Verify how many attributes are named 'durability'.",
+     "sql": "SELECT COUNT(*) FROM attribute WHERE attribute_name = 'durability' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "SCOPE PROOF: Verify the number of superhero-attribute mappings for durability.",
+     "sql": "SELECT COUNT(*) FROM hero_attribute JOIN attribute ON hero_attribute.attribute_id = attribute.id WHERE attribute.attribute_name = 'durability' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "CONNECTIVITY LEMMA: Prove join path between superhero and publisher.",
+     "sql": "SELECT DISTINCT publisher_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "publisher_id"
+     ],
+     "head": [
+      [
+       13
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       15
+      ],
+      [
+       25
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "CONNECTIVITY LEMMA: Other side of the superhero-publisher join.",
+     "sql": "SELECT DISTINCT id FROM publisher LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "CONNECTIVITY LEMMA: Prove join path between superhero and hero_attribute.",
+     "sql": "SELECT DISTINCT id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "CONNECTIVITY LEMMA: Other side of the superhero-hero_attribute join.",
+     "sql": "SELECT DISTINCT hero_id FROM hero_attribute LIMIT 5",
+     "status": "success",
+     "columns": [
+      "hero_id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "CONNECTIVITY LEMMA: Prove join path between attribute and hero_attribute.",
+     "sql": "SELECT DISTINCT id FROM attribute LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "CONNECTIVITY LEMMA: Other side of the attribute-hero_attribute join.",
+     "sql": "SELECT DISTINCT attribute_id FROM hero_attribute LIMIT 5",
+     "status": "success",
+     "columns": [
+      "attribute_id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "EXISTENCE LEMMA: Check for variations of 'Dark Horse' in publisher names to avoid missing data.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Dark Horse%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Dark Horse Comics"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage2": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Yesterday you worked through a client question in three phases:\nPhase 1 — questions and assumptions written before seeing the schema.\nPhase 2 — schema review, assumptions updated against column profiles.\nPhase 3 — exploratory SQL queries written to investigate the data.\n\nNow the queries have run. You have the results in front of you.\n\nYour job today is three phases:\n\nPHASE 4 — REVISED ASSUMPTIONS\nGo through every assumption you made in Phases 1 and 2. For each one, state what the query results show.\nTag each item with exactly one of:\n  [CONFIRMED]    — a PASSED query directly proves this assumption. Cite the query number.\n  [REVISED]      — results partially support but require adjustment. State what changed and why.\n  [CONTRADICTED] — a query returned zero rows, an error, or unexpected data that disproves this\n                   hypothesis. This is not a failure — it is a proof by contradiction. State clearly\n                   what was disproven and what it implies.\n  [OPEN-VALUE]   — an assumption involves a string filter value that was NEVER confirmed with a\n                   SELECT DISTINCT query. This is an open conjecture — the Director cannot use it.\n                   Phase 5 MUST include a DISTINCT query to resolve it.\n  [WRONG-TABLE]  — query results suggest the data does not live in the assumed table (column doesn't\n                   exist, zero rows where many were expected, data type mismatch). The hypothesis\n                   about which table to use is disproven. Phase 5 must explore the alternative.\n  [LIKE-VS-ENUM] — the analyst used LIKE or a substring match on a name/description column, but\n                   the schema may contain a separate coded or enum column for the same concept\n                   (e.g., filtering by name string when a type_code column exists). Phase 5 MUST\n                   include a DISTINCT query on the potential enum column to check if it provides\n                   a cleaner, exact-match filter.\n\nAfter the tag, write one sentence citing which query result led to this conclusion.\n\nContrapositive test for filters: For each filter in your hypothesis, apply the contrapositive test:\n\"If the question does not explicitly mention this constraint, then it should NOT appear in the WHERE\nclause.\" If Stage 1 added a filter that the question never asked for (e.g. a status filter, an\nactive/inactive check), tag it [CONTRADICTED] with reason: \"contrapositive — question does not\nmention this constraint.\"\n\nPHASE 4b — HYPOTHESIS REVIEW\nWrite a short paragraph (3–5 sentences) answering:\n  1. Does your original hypothesis about how to answer this question still hold?\n     State clearly: YES it holds, NO it needs to change, or PARTIALLY — explain what changed.\n  2. Did the query results reveal anything you did not expect? If so, what?\n  3. What is your updated hypothesis for the final SQL approach?\n\nYour updated hypothesis must name:\n  - The exact table name(s) as they appear in the schema\n  - The exact column name(s) — quoted if they contain spaces\n  - The exact confirmed string value (if a filter is needed) — proven by a DISTINCT query\n  - The exact join path (if tables must be joined) — proven by connectivity lemma queries\n  Vague hypotheses like \"filter by type\" or \"join on the ID column\" are rejected.\n  If any piece is uncertain, tag it [OPEN-VALUE] and resolve it in Phase 5.\n\nPHASE 5 — CONFIRMATION QUERIES\nWrite at least 15 new SQL queries. The system will reject outputs with fewer than 5 — those records\nwill be skipped entirely. These are not exploratory — they are targeted at the gaps, surprises, and\nrevised assumptions from Phases 4 and 4b.\n\nMandatory resolution: Every [OPEN-VALUE] and [WRONG-TABLE] from Phase 4 MUST have a corresponding\nresolution query in Phase 5. An unresolved conjecture is a gap that the Director will fill with\nguesswork — and guesswork is how we get wrong answers.\n  - For [OPEN-VALUE]: run SELECT DISTINCT col FROM table LIMIT 20 to prove the exact value.\n  - For [WRONG-TABLE]: run exploratory queries against the alternative table.\n  - For [LIKE-VS-ENUM]: run SELECT DISTINCT enum_col FROM table LIMIT 20. If the enum column\n    provides exact values that match the question's intent, recommend it over the LIKE filter\n    in your Phase 4b hypothesis update.\n\nDo not repeat queries from Phase 3. Each query must address something new.\n\nSQLite rules — same as before, non-negotiable:\n- Column names with spaces or special characters MUST be double-quoted: \"County Name\"\n- No window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.)\n- Always use LIMIT\n- Do NOT write the final answer query\n\nOutput format for Phase 5 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- RESOLVE [OPEN-VALUE]: Prove what distinct values exist in order_status.\n   SELECT DISTINCT order_status FROM orders LIMIT 20;\n\n2. -- RESOLVE [WRONG-TABLE]: Check if revenue data lives in invoices instead of orders.\n   SELECT COUNT(*), MIN(total), MAX(total) FROM invoices LIMIT 1;\n\n3. -- CONTRAPOSITIVE TEST: Verify results without the assumed 'active' filter.\n   SELECT COUNT(*) FROM customers LIMIT 1;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check if department_code is a cleaner filter than department_name.\n   SELECT DISTINCT department_code, department_name FROM departments LIMIT 20;\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 4 — REVISED ASSUMPTIONS\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\n## PHASE 5 — CONFIRMATION QUERIES",
+   "user_prompt": "The query results are in. Time to review.\n\nQuestion: Which superhero has the most durability published by Dark Horse Comics?\nEvidence: which superhero refers to superhero_name; most durability refers to MAX(attribute_value) WHERE attribute_name = 'durability'; published by Dark Horse Comics refers to publisher_name = 'Dark Horse Comics';\n\nDatabase: superhero\n\nSchema (same as before — table names, column names, types, join keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\n---\n\nYour Phase 1 — Two Semantic Hypotheses:\n\n1. Which column identifies the superhero? Assumption: The question asks for a descriptive label (name) rather than a numeric ID.\n2. How is \"durability\" stored in the database? Assumption: It is a specific record within an attributes table, not a standalone column in the hero table.\n3. Is \"Dark Horse Comics\" the exact string used for the publisher? Assumption: The filter will be an exact match on the name 'Dark Horse Comics'.\n4. How are durability values represented? Assumption: Durability is stored as an integer that can be compared using MAX().\n5. Are there any status filters (e.g., active/inactive) required? Assumption: No such filters exist or are needed unless specified.\n6. What happens if multiple superheroes share the same maximum durability? Assumption: The query should return all who tie for the maximum.\n\nREASONING:\nThe primary goal is to link a specific publisher to a specific attribute value.\nI must determine if \"durability\" is a column or a row in a key-value table.\nIdentifying the exact string for the publisher prevents filter mismatches.\nConfirming the data type of durability ensures that MAX() is mathematically valid.\nChecking for ties ensures the result set is complete and not arbitrarily truncated.\n\n---\n\nYour Phase 2 — Schema Deep Dive:\n\n1. [CONFIRMED] The `superhero` table contains `superhero_name`, which serves as the descriptive label.\n2. [CONFIRMED] Durability is stored in the `attribute` table (`attribute_name`) and linked via `hero_attribute`.\n3. [CONFIRMED] The `publisher` table has a `publisher_name` column for filtering 'Dark Horse Comics'.\n4. [CONFIRMED] The `hero_attribute` table stores `attribute_value` as an integer, supporting MAX().\n5. [CONFIRMED] No status or activity columns are present in the schema to filter on.\n6. [NEW] I need to verify if `publisher_id` in the `superhero` table is ever null for these heroes.\n\nREASONING:\nThe schema confirms a normalized structure where attributes and publishers are separate tables.\nJoin paths are clearly defined via foreign keys between superhero, publisher, and hero_attribute.\nThe use of an intermediary table for attributes means I must join three tables to get the result.\nI have confirmed that durability is a value associated with an attribute ID rather than a column.\nDirect database probes are now required to verify the existence of specific string values.\n\n---\n\nPhase 3 — Exploratory Query Results:\n\n1. -- EXISTENCE LEMMA: Confirm 'Dark Horse Comics' exists in the publisher table.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name = 'Dark Horse Comics' LIMIT 20\n   Columns: publisher_name\n   ['Dark Horse Comics']\n\n2. -- EXISTENCE LEMMA: Confirm 'durability' exists as a valid attribute name.\n   SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name = 'durability' LIMIT 20\n   Columns: attribute_name\n   (no rows returned)\n\n3. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline of all superheroes in the system.\n   SELECT COUNT(*) FROM superhero LIMIT 1\n   Columns: COUNT(*)\n   [750]\n\n4. -- COLUMN SUITABILITY PROOF: Check for nulls in attribute_value to ensure it is a reliable metric.\n   SELECT COUNT(*) - COUNT(attribute_value) as nulls, COUNT(*) as total FROM hero_attribute LIMIT 1\n   Columns: nulls, total\n   [0, 3738]\n\n5. -- SCOPE PROOF: Count the unfiltered universe of superheroes.\n   SELECT COUNT(*) FROM superhero LIMIT 1\n   Columns: COUNT(*)\n   [750]\n\n6. -- SCOPE PROOF: Count superheroes specifically published by 'Dark Horse Comics' to verify filter scope.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'Dark Horse Comics' LIMIT 1\n   Columns: COUNT(*)\n   [19]\n\n7. -- SCOPE PROOF: Verify how many attributes are named 'durability'.\n   SELECT COUNT(*) FROM attribute WHERE attribute_name = 'durability' LIMIT 1\n   Columns: COUNT(*)\n   [0]\n\n8. -- SCOPE PROOF: Verify the number of superhero-attribute mappings for durability.\n   SELECT COUNT(*) FROM hero_attribute JOIN attribute ON hero_attribute.attribute_id = attribute.id WHERE attribute.attribute_name = 'durability' LIMIT 1\n   Columns: COUNT(*)\n   [0]\n\n9. -- CONNECTIVITY LEMMA: Prove join path between superhero and publisher.\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5\n   Columns: publisher_id\n   [13]\n   [3]\n   [4]\n   ... (5 rows total)\n\n10. -- CONNECTIVITY LEMMA: Other side of the superhero-publisher join.\n   SELECT DISTINCT id FROM publisher LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n11. -- CONNECTIVITY LEMMA: Prove join path between superhero and hero_attribute.\n   SELECT DISTINCT id FROM superhero LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n12. -- CONNECTIVITY LEMMA: Other side of the superhero-hero_attribute join.\n   SELECT DISTINCT hero_id FROM hero_attribute LIMIT 5\n   Columns: hero_id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n13. -- CONNECTIVITY LEMMA: Prove join path between attribute and hero_attribute.\n   SELECT DISTINCT id FROM attribute LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n14. -- CONNECTIVITY LEMMA: Other side of the attribute-hero_attribute join.\n   SELECT DISTINCT attribute_id FROM hero_attribute LIMIT 5\n   Columns: attribute_id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n15. -- EXISTENCE LEMMA: Check for variations of 'Dark Horse' in publisher names to avoid missing data.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Dark Horse%' LIMIT 20\n   Columns: publisher_name\n   ['Dark Horse Comics']\n\n---\n\nWork through Phase 4 and Phase 5 now.",
+   "response": "## PHASE 4 — REVISED ASSUMPTIONS\n\n1. Which column identifies the superhero? [CONFIRMED] Query 3 and 5 confirm the `superhero` table exists and contains the population of heroes.\n2. How is \"durability\" stored in the database? [CONTRADICTED] Query 7 and 8 prove that no record with the exact string 'durability' exists in the `attribute` table, meaning this specific filter value is incorrect.\n3. Is \"Dark Horse Comics\" the exact string used for the publisher? [CONFIRMED] Query 1 and 15 confirm 'Dark Horse Comics' is the correct and unique string.\n4. How are durability values represented? [CONFIRMED] Query 4 confirms `attribute_value` contains no nulls and the schema defines it as an integer, supporting MAX().\n5. Are there any status filters (e.g., active/inactive) required? [CONTRADICTED] contrapositive — question does not mention this constraint.\n6. What happens if multiple superheroes share the same maximum durability? [CONFIRMED] This is a logical requirement for completeness and will be handled by avoiding LIMIT 1 in the final logic (though not explicitly tested by a query).\n7. Is `publisher_id` in the `superhero` table ever null for these heroes? [OPEN-VALUE] While Query 6 shows 19 heroes are linked to Dark Horse, I have not yet verified if there are heroes with NULL publishers that might be relevant.\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\nThe original hypothesis holds PARTIALLY. The join path (`publisher` -> `superhero` -> `hero_attribute` -> `attribute`) and the publisher filter ('Dark Horse Comics') are correct and verified. However, the assumption that the attribute is named exactly 'durability' was disproven. I discovered that while the structure for attributes exists, the specific string used to identify \"durability\" is unknown.\n\nMy updated hypothesis is to join `publisher`, `superhero`, `hero_attribute`, and `attribute` using their respective IDs. I will filter by `publisher.publisher_name = 'Dark Horse Comics'` and `attribute.attribute_name = [OPEN-VALUE]`, where the value will be determined by exploring the distinct names in the `attribute` table. The result will be the `superhero.superhero_name` associated with the `MAX(hero_attribute.attribute_value)`.\n\n## PHASE 5 — CONFIRMATION QUERIES\n\n1. -- RESOLVE [OPEN-VALUE]: Find the actual string used for durability by listing all distinct attributes.\n   SELECT DISTINCT attribute_name FROM attribute LIMIT 20;\n\n2. -- RESOLVE [OPEN-VALUE]: Search for any attribute name containing \"durab\" to find case-insensitive or partial matches.\n   SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%durab%' LIMIT 20;\n\n3. -- RESOLVE [OPEN-VALUE]: Search for attributes related to toughness or resistance as alternatives to durability.\n   SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%tough%' OR attribute_name LIKE '%resist%' LIMIT 20;\n\n4. -- RESOLVE [OPEN-VALUE]: Check if \"Durability\" is capitalized in the database.\n   SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name = 'Durability' LIMIT 1;\n\n5. -- RESOLVE [OPEN-VALUE]: Verify that Dark Horse heroes actually have entries in the hero_attribute table.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id JOIN hero_attribute ON superhero.id = hero_attribute.hero_id WHERE publisher.publisher_name = 'Dark Horse Comics' LIMIT 1;\n\n6. -- RESOLVE [OPEN-VALUE]: Check for any attribute names that are empty strings or just whitespace.\n   SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name = '' OR attribute_name LIKE ' %' LIMIT 20;\n\n7. -- RESOLVE [OPEN-VALUE]: Identify the top 10 most common attributes to see if durability is listed under a different name.\n   SELECT attribute_name, COUNT(*) as cnt FROM attribute JOIN hero_attribute ON attribute.id = hero_attribute.attribute_id GROUP BY attribute_name ORDER BY cnt DESC LIMIT 10;\n\n8. -- RESOLVE [OPEN-VALUE]: Check for any attributes that might be \"durability\" but use a numeric code or different naming convention.\n   SELECT * FROM attribute WHERE attribute_name LIKE '%score%' OR attribute_name LIKE '%level%' LIMIT 20;\n\n9. -- RESOLVE [OPEN-VALUE]: Verify if there are multiple publishers with similar names to 'Dark Horse Comics' that were missed.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Dark%' LIMIT 20;\n\n10. -- RESOLVE [OPEN-VALUE]: Check for NULLs in superhero.publisher_id to see if data is missing.\n    SELECT COUNT(*) FROM superhero WHERE publisher_id IS NULL LIMIT 1;\n\n11. -- RESOLVE [OPEN-VALUE]: Verify the range of attribute values to ensure they are comparable integers (e.g., not 0 or negative).\n    SELECT MIN(attribute_value), MAX(attribute_value), AVG(attribute_value) FROM hero_attribute LIMIT 1;\n\n12. -- RESOLVE [OPEN-VALUE]: Check if any superhero has multiple values for the same attribute.\n    SELECT hero_id, attribute_id, COUNT(*) FROM hero_attribute GROUP BY hero_id, attribute_id HAVING COUNT(*) > 1 LIMIT 20;\n\n13. -- RESOLVE [OPEN-VALUE]: Confirm that every publisher_id in superhero exists in the publisher table.\n    SELECT COUNT(*) FROM superhero WHERE publisher_id NOT IN (SELECT id FROM publisher) LIMIT 1;\n\n14. -- RESOLVE [OPEN-VALUE]: Check for any attribute names that are very short (e.g., codes like 'DUR').\n    SELECT DISTINCT attribute_name FROM attribute WHERE LENGTH(attribute_name) <= 3 LIMIT 20;\n\n15. -- RESOLVE [OPEN-VALUE]: Verify the join path from superhero to attribute specifically for one Dark Horse hero.\n    SELECT s.superhero_name, a.attribute_name, ha.attribute_value FROM superhero s JOIN publisher p ON s.publisher_id = p.id JOIN hero_attribute ha ON s.id = ha.hero_id JOIN attribute a ON ha.attribute_id = a.id WHERE p.publisher_name = 'Dark Horse Comics' LIMIT 20;",
+   "phase4": "1. Which column identifies the superhero? [CONFIRMED] Query 3 and 5 confirm the `superhero` table exists and contains the population of heroes.\n2. How is \"durability\" stored in the database? [CONTRADICTED] Query 7 and 8 prove that no record with the exact string 'durability' exists in the `attribute` table, meaning this specific filter value is incorrect.\n3. Is \"Dark Horse Comics\" the exact string used for the publisher? [CONFIRMED] Query 1 and 15 confirm 'Dark Horse Comics' is the correct and unique string.\n4. How are durability values represented? [CONFIRMED] Query 4 confirms `attribute_value` contains no nulls and the schema defines it as an integer, supporting MAX().\n5. Are there any status filters (e.g., active/inactive) required? [CONTRADICTED] contrapositive — question does not mention this constraint.\n6. What happens if multiple superheroes share the same maximum durability? [CONFIRMED] This is a logical requirement for completeness and will be handled by avoiding LIMIT 1 in the final logic (though not explicitly tested by a query).\n7. Is `publisher_id` in the `superhero` table ever null for these heroes? [OPEN-VALUE] While Query 6 shows 19 heroes are linked to Dark Horse, I have not yet verified if there are heroes with NULL publishers that might be relevant.",
+   "phase4b": "The original hypothesis holds PARTIALLY. The join path (`publisher` -> `superhero` -> `hero_attribute` -> `attribute`) and the publisher filter ('Dark Horse Comics') are correct and verified. However, the assumption that the attribute is named exactly 'durability' was disproven. I discovered that while the structure for attributes exists, the specific string used to identify \"durability\" is unknown.\n\nMy updated hypothesis is to join `publisher`, `superhero`, `hero_attribute`, and `attribute` using their respective IDs. I will filter by `publisher.publisher_name = 'Dark Horse Comics'` and `attribute.attribute_name = [OPEN-VALUE]`, where the value will be determined by exploring the distinct names in the `attribute` table. The result will be the `superhero.superhero_name` associated with the `MAX(hero_attribute.attribute_value)`.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "RESOLVE [OPEN-VALUE]: Find the actual string used for durability by listing all distinct attributes.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [
+      [
+       "Intelligence"
+      ],
+      [
+       "Strength"
+      ],
+      [
+       "Speed"
+      ],
+      [
+       "Durability"
+      ],
+      [
+       "Power"
+      ]
+     ],
+     "row_count": 6,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "RESOLVE [OPEN-VALUE]: Search for any attribute name containing \"durab\" to find case-insensitive or partial matches.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%durab%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [
+      [
+       "Durability"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "RESOLVE [OPEN-VALUE]: Search for attributes related to toughness or resistance as alternatives to durability.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%tough%' OR attribute_name LIKE '%resist%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "RESOLVE [OPEN-VALUE]: Check if \"Durability\" is capitalized in the database.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name = 'Durability' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [
+      [
+       "Durability"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "RESOLVE [OPEN-VALUE]: Verify that Dark Horse heroes actually have entries in the hero_attribute table.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id JOIN hero_attribute ON superhero.id = hero_attribute.hero_id WHERE publisher.publisher_name = 'Dark Horse Comics' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       102
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "RESOLVE [OPEN-VALUE]: Check for any attribute names that are empty strings or just whitespace.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name = '' OR attribute_name LIKE ' %' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "RESOLVE [OPEN-VALUE]: Identify the top 10 most common attributes to see if durability is listed under a different name.",
+     "sql": "SELECT attribute_name, COUNT(*) as cnt FROM attribute JOIN hero_attribute ON attribute.id = hero_attribute.attribute_id GROUP BY attribute_name ORDER BY cnt DESC LIMIT 10",
+     "status": "success",
+     "columns": [
+      "attribute_name",
+      "cnt"
+     ],
+     "head": [
+      [
+       "Strength",
+       623
+      ],
+      [
+       "Speed",
+       623
+      ],
+      [
+       "Power",
+       623
+      ],
+      [
+       "Intelligence",
+       623
+      ],
+      [
+       "Durability",
+       623
+      ]
+     ],
+     "row_count": 6,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "RESOLVE [OPEN-VALUE]: Check for any attributes that might be \"durability\" but use a numeric code or different naming convention.",
+     "sql": "SELECT * FROM attribute WHERE attribute_name LIKE '%score%' OR attribute_name LIKE '%level%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "id",
+      "attribute_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "RESOLVE [OPEN-VALUE]: Verify if there are multiple publishers with similar names to 'Dark Horse Comics' that were missed.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Dark%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Dark Horse Comics"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "RESOLVE [OPEN-VALUE]: Check for NULLs in superhero.publisher_id to see if data is missing.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       3
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "RESOLVE [OPEN-VALUE]: Verify the range of attribute values to ensure they are comparable integers (e.g., not 0 or negative).",
+     "sql": "SELECT MIN(attribute_value), MAX(attribute_value), AVG(attribute_value) FROM hero_attribute LIMIT 1",
+     "status": "success",
+     "columns": [
+      "MIN(attribute_value)",
+      "MAX(attribute_value)",
+      "AVG(attribute_value)"
+     ],
+     "head": [
+      [
+       5,
+       100,
+       52.426431246655966
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "RESOLVE [OPEN-VALUE]: Check if any superhero has multiple values for the same attribute.",
+     "sql": "SELECT hero_id, attribute_id, COUNT(*) FROM hero_attribute GROUP BY hero_id, attribute_id HAVING COUNT(*) > 1 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "hero_id",
+      "attribute_id",
+      "COUNT(*)"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "RESOLVE [OPEN-VALUE]: Confirm that every publisher_id in superhero exists in the publisher table.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id NOT IN (SELECT id FROM publisher) LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "RESOLVE [OPEN-VALUE]: Check for any attribute names that are very short (e.g., codes like 'DUR').",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE LENGTH(attribute_name) <= 3 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "RESOLVE [OPEN-VALUE]: Verify the join path from superhero to attribute specifically for one Dark Horse hero.",
+     "sql": "SELECT s.superhero_name, a.attribute_name, ha.attribute_value FROM superhero s JOIN publisher p ON s.publisher_id = p.id JOIN hero_attribute ha ON s.id = ha.hero_id JOIN attribute a ON ha.attribute_id = a.id WHERE p.publisher_name = 'Dark Horse Comics' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "attribute_name",
+      "attribute_value"
+     ],
+     "head": [
+      [
+       "Abe Sapien",
+       "Intelligence",
+       95
+      ],
+      [
+       "Alien",
+       "Intelligence",
+       80
+      ],
+      [
+       "Angel",
+       "Intelligence",
+       90
+      ],
+      [
+       "Buffy",
+       "Intelligence",
+       85
+      ],
+      [
+       "Dash",
+       "Intelligence",
+       65
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage3": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "\nYou are the director. You are reviewing the work of a junior analyst who investigated a client\nquestion by running SQL queries against the actual database.\n\nYour analyst is good but not infallible. They may have explored the right tables or the wrong ones.\nWhat they give you is raw data from the database — what columns exist, what values appeared, which\njoins worked, which failed. Your job is to use that evidence to write the final SQL.\n\nRules:\n  1. Use the analyst's query results as your evidence base. Column names, table names, join keys,\n     and filter values from PASSED queries are confirmed to exist in the database — use them exactly\n     as they appeared. Queries that FAILED with \"no such column: X\" confirm that X does not exist.\n  2. The analyst may have queried the wrong table or missed a relevant one. Consider all tables\n     the analyst touched, but also re-read the schema to check if a better path exists.\n  3. Write 5 candidates. Each candidate is your best complete answer under a different\n     interpretation of what the question is asking. The interpretations should differ in\n     meaningful ways: which tables to query, which columns to SELECT, which filters to apply,\n     how to aggregate, or what the question fundamentally means.\n\n       C1 — your primary interpretation: the answer you think is most likely correct based on\n             the question text, evidence, and analyst findings. This should be a complete,\n             production-quality query.\n       C2 — second interpretation: a structurally different reading. Perhaps a different table,\n             a different join path, or a different understanding of which column answers the\n             question (e.g., returning an ID instead of a name, or COUNT instead of a list).\n       C3 — third interpretation: another distinct reading. Could differ in aggregation logic,\n             filter scope, or SELECT shape (e.g., including the metric alongside the result).\n       C4 — fourth interpretation: explores a less obvious reading. Different grouping, an\n             additional condition implied by context, or a different column that could answer\n             the same question.\n       C5 — fifth interpretation, most elaborate: if the question could require comparing a\n             value to an aggregate (average, threshold, rank), use Nested Isolation here:\n               Inner query: compute the aggregate (AVG, MAX, COUNT, etc.)\n               Outer query: filter or join against that aggregate result\n             Pattern: SELECT col FROM t WHERE val > (SELECT AVG(val) FROM t)\n             If no aggregate comparison applies, use the most structurally different approach\n             you can justify.\n\n     Each candidate must be a complete, standalone, executable query — not a fragment or\n     simplification. Five variations of the same WHERE clause with minor tweaks is not five\n     interpretations.\n  4. Each candidate must be a complete, standalone, executable SQL query.\n  5. Different interpretations may reasonably differ in SELECT shape. For example, one\n     interpretation might return only COUNT(*), another might return COUNT(*) with the GROUP BY\n     column, and another might return the actual rows. Let each interpretation dictate its own\n     SELECT — do not artificially restrict columns across all five candidates.\n  6. Use LIMIT only when the question asks for a specific number of results (\"top 3\", \"the one\n     with the highest\"). If the question asks for a list without a count, do not use LIMIT.\n  7. You may use window functions (RANK, ROW_NUMBER, etc.) when the question requires ranking\n     within a group or ordering within a partition.\n\n  Proof-by-Cases principle:\n    C1-C5 must represent genuinely different interpretations of the question. If the correct\n    answer exists, at least one interpretation MUST capture it. Each must be structurally\n    distinct — different tables, joins, groupings, SELECT columns, or filter logic.\n\n  Exclusion Principle:\n    Every element in your SQL must be justified by either:\n      (a) the question text explicitly requiring it, or\n      (b) a PASSED query from the analyst's work confirming it exists and is relevant.\n    Do not add columns \"for context\", filters \"for safety\" (IS NOT NULL, status checks),\n    or joins \"just in case\". Unjustified additions are unproven conjectures — they narrow\n    or widen the result set beyond what was asked and cause failures.\n\n  Evidence hierarchy:\n    - PASSED queries with non-zero rows: proven facts. Use the exact column names, table\n      names, and values as they appeared.\n    - FAILED queries (errors): proven non-existence. The column or table does NOT exist\n      in that form. Do not use it.\n    - Zero-row PASSED queries: the filter combination is valid syntax but matches nothing.\n      Consider whether the filter is too restrictive.\n    - [OPEN-VALUE] / [WRONG-TABLE] tags from the analyst: unresolved conjectures. Prefer\n      alternatives that were actually confirmed.\n\nSQLite rules — non-negotiable:\n  - Column names with spaces or special characters MUST be double-quoted: \"Order Date\"\n  - Every query must begin with SELECT. Never use WITH ... AS (CTEs).\n  - Use whatever SQL structure best serves each interpretation: subqueries, window functions,\n    derived tables, or flat SELECT/JOIN/GROUP BY. The only constraint is correctness.\n  - Any query that joins two or more tables MUST assign a short alias to every table\n    (e.g. FROM movies m JOIN ratings r ON m.movie_id = r.movie_id) and MUST qualify every\n    column reference with its alias (e.g. m.movie_title, not just movie_title). Unqualified\n    column references in multi-table queries are ambiguous and will cause runtime errors.\n\nOutput format:\n## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: [what this reading assumes about the question]\nSELECT t1.col FROM t1 JOIN t2 ON t1.id = t2.fk WHERE t1.filter = value\n\n2. -- Second interpretation: [how this differs from C1]\nSELECT t1.id FROM t1 WHERE t1.different_filter = value\n\n3. -- Third interpretation: [what this captures that C1-C2 miss]\nSELECT t1.col, COUNT(*) FROM t1 GROUP BY t1.col\n\n4. -- Fourth interpretation: [alternative approach]\nSELECT t1.col FROM t1 JOIN t3 ON t1.id = t3.fk WHERE t3.filter = value\n\n5. -- Fifth interpretation: [most elaborate or aggregate-comparison approach]\nSELECT t1.col FROM t1 WHERE t1.val > (SELECT AVG(t2.val) FROM t1 t2)\n\nFormat rules:\n  - Numbered 1 through 5 exactly.\n  - Candidate 1 MUST start with \"1. --\" on its own line — never output the first candidate\n    as raw unnumbered SQL.\n  - Comment on same line as the number, starting with --.\n  - SQL starts on the next line, beginning with SELECT.\n  - Blank line between candidates.\n  - No markdown code fences. No bold. No extra headers.\n",
+   "user_prompt": "Question: Which superhero has the most durability published by Dark Horse Comics?\nEvidence: which superhero refers to superhero_name; most durability refers to MAX(attribute_value) WHERE attribute_name = 'durability'; published by Dark Horse Comics refers to publisher_name = 'Dark Horse Comics';\n\nDatabase: superhero\n\n---\nANALYST WORK PRODUCT\n\nStage 1 — What was checked and what was found:\n1. Checked: EXISTENCE LEMMA: Confirm 'Dark Horse Comics' exists in the publisher table.\n   Result: publisher_name: Dark Horse Comics\n\n2. Checked: EXISTENCE LEMMA: Confirm 'durability' exists as a valid attribute name.\n   Result: (no rows returned)\n\n3. Checked: AXIOMATIC NEUTRALITY: Establish the unfiltered baseline of all superheroes in the system.\n   Result: COUNT(*): 750\n\n4. Checked: COLUMN SUITABILITY PROOF: Check for nulls in attribute_value to ensure it is a reliable metric.\n   Result: nulls: 0 | total: 3738\n\n5. Checked: SCOPE PROOF: Count the unfiltered universe of superheroes.\n   Result: COUNT(*): 750\n\n6. Checked: SCOPE PROOF: Count superheroes specifically published by 'Dark Horse Comics' to verify filter scope.\n   Result: COUNT(*): 19\n\n7. Checked: SCOPE PROOF: Verify how many attributes are named 'durability'.\n   Result: COUNT(*): 0\n\n8. Checked: SCOPE PROOF: Verify the number of superhero-attribute mappings for durability.\n   Result: COUNT(*): 0\n\n9. Checked: CONNECTIVITY LEMMA: Prove join path between superhero and publisher.\n   Result: publisher_id: 13\n   (5 rows total)\n\n10. Checked: CONNECTIVITY LEMMA: Other side of the superhero-publisher join.\n   Result: id: 1\n   (5 rows total)\n\n11. Checked: CONNECTIVITY LEMMA: Prove join path between superhero and hero_attribute.\n   Result: id: 1\n   (5 rows total)\n\n12. Checked: CONNECTIVITY LEMMA: Other side of the superhero-hero_attribute join.\n   Result: hero_id: 1\n   (5 rows total)\n\n13. Checked: CONNECTIVITY LEMMA: Prove join path between attribute and hero_attribute.\n   Result: id: 1\n   (5 rows total)\n\n14. Checked: CONNECTIVITY LEMMA: Other side of the attribute-hero_attribute join.\n   Result: attribute_id: 1\n   (5 rows total)\n\n15. Checked: EXISTENCE LEMMA: Check for variations of 'Dark Horse' in publisher names to avoid missing data.\n   Result: publisher_name: Dark Horse Comics\n\n\nStage 2 — Hypothesis verdict (Phase 4):\n1. Which column identifies the superhero? [CONFIRMED] Query 3 and 5 confirm the `superhero` table exists and contains the population of heroes.\n2. How is \"durability\" stored in the database? [CONTRADICTED] Query 7 and 8 prove that no record with the exact string 'durability' exists in the `attribute` table, meaning this specific filter value is incorrect.\n3. Is \"Dark Horse Comics\" the exact string used for the publisher? [CONFIRMED] Query 1 and 15 confirm 'Dark Horse Comics' is the correct and unique string.\n4. How are durability values represented? [CONFIRMED] Query 4 confirms `attribute_value` contains no nulls and the schema defines it as an integer, supporting MAX().\n5. Are there any status filters (e.g., active/inactive) required? [CONTRADICTED] contrapositive — question does not mention this constraint.\n6. What happens if multiple superheroes share the same maximum durability? [CONFIRMED] This is a logical requirement for completeness and will be handled by avoiding LIMIT 1 in the final logic (though not explicitly tested by a query).\n7. Is `publisher_id` in the `superhero` table ever null for these heroes? [OPEN-VALUE] While Query 6 shows 19 heroes are linked to Dark Horse, I have not yet verified if there are heroes with NULL publishers that might be relevant.\n\nStage 2 — Winning hypothesis (Phase 4b):\nThe original hypothesis holds PARTIALLY. The join path (`publisher` -> `superhero` -> `hero_attribute` -> `attribute`) and the publisher filter ('Dark Horse Comics') are correct and verified. However, the assumption that the attribute is named exactly 'durability' was disproven. I discovered that while the structure for attributes exists, the specific string used to identify \"durability\" is unknown.\n\nMy updated hypothesis is to join `publisher`, `superhero`, `hero_attribute`, and `attribute` using their respective IDs. I will filter by `publisher.publisher_name = 'Dark Horse Comics'` and `attribute.attribute_name = [OPEN-VALUE]`, where the value will be determined by exploring the distinct names in the `attribute` table. The result will be the `superhero.superhero_name` associated with the `MAX(hero_attribute.attribute_value)`.\n\nStage 2 — Confirmation checks and what was found:\n1. Checked: RESOLVE [OPEN-VALUE]: Find the actual string used for durability by listing all distinct attributes.\n   Result: attribute_name: Intelligence\n   (6 rows total)\n\n2. Checked: RESOLVE [OPEN-VALUE]: Search for any attribute name containing \"durab\" to find case-insensitive or partial matches.\n   Result: attribute_name: Durability\n\n3. Checked: RESOLVE [OPEN-VALUE]: Search for attributes related to toughness or resistance as alternatives to durability.\n   Result: (no rows returned)\n\n4. Checked: RESOLVE [OPEN-VALUE]: Check if \"Durability\" is capitalized in the database.\n   Result: attribute_name: Durability\n\n5. Checked: RESOLVE [OPEN-VALUE]: Verify that Dark Horse heroes actually have entries in the hero_attribute table.\n   Result: COUNT(*): 102\n\n6. Checked: RESOLVE [OPEN-VALUE]: Check for any attribute names that are empty strings or just whitespace.\n   Result: (no rows returned)\n\n7. Checked: RESOLVE [OPEN-VALUE]: Identify the top 10 most common attributes to see if durability is listed under a different name.\n   Result: attribute_name: Strength | cnt: 623\n   (6 rows total)\n\n8. Checked: RESOLVE [OPEN-VALUE]: Check for any attributes that might be \"durability\" but use a numeric code or different naming convention.\n   Result: (no rows returned)\n\n9. Checked: RESOLVE [OPEN-VALUE]: Verify if there are multiple publishers with similar names to 'Dark Horse Comics' that were missed.\n   Result: publisher_name: Dark Horse Comics\n\n10. Checked: RESOLVE [OPEN-VALUE]: Check for NULLs in superhero.publisher_id to see if data is missing.\n   Result: COUNT(*): 3\n\n11. Checked: RESOLVE [OPEN-VALUE]: Verify the range of attribute values to ensure they are comparable integers (e.g., not 0 or negative).\n   Result: MIN(attribute_value): 5 | MAX(attribute_value): 100 | AVG(attribute_value): 52.426431246655966\n\n12. Checked: RESOLVE [OPEN-VALUE]: Check if any superhero has multiple values for the same attribute.\n   Result: (no rows returned)\n\n13. Checked: RESOLVE [OPEN-VALUE]: Confirm that every publisher_id in superhero exists in the publisher table.\n   Result: COUNT(*): 0\n\n14. Checked: RESOLVE [OPEN-VALUE]: Check for any attribute names that are very short (e.g., codes like 'DUR').\n   Result: (no rows returned)\n\n15. Checked: RESOLVE [OPEN-VALUE]: Verify the join path from superhero to attribute specifically for one Dark Horse hero.\n   Result: superhero_name: Abe Sapien | attribute_name: Intelligence | attribute_value: 95\n   (20 rows total)\n\n\n---\nWrite 5 candidate SQL queries sweeping from the least to the most work required to answer the question.",
+   "response": "## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: The question asks for the name of the single superhero with the highest durability value among those published by Dark Horse Comics.\nSELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' AND a.attribute_name = 'Durability'\nORDER BY ha.attribute_value DESC\nLIMIT 1\n\n2. -- Second interpretation: The question asks for both the name and the durability value to provide evidence of why that superhero has the \"most\".\nSELECT s.superhero_name, ha.attribute_value\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' AND a.attribute_name = 'Durability'\nORDER BY ha.attribute_value DESC\nLIMIT 1\n\n3. -- Third interpretation: The question asks for all superheroes who tie for the maximum durability value within Dark Horse Comics, ensuring no one is omitted.\nSELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' \nAND a.attribute_name = 'Durability'\nAND ha.attribute_value = (\n    SELECT MAX(ha2.attribute_value)\n    FROM hero_attribute ha2\n    JOIN superhero s2 ON ha2.hero_id = s2.id\n    JOIN publisher p2 ON s2.publisher_id = p2.id\n    JOIN attribute a2 ON ha2.attribute_id = a2.id\n    WHERE p2.publisher_name = 'Dark Horse Comics' AND a2.attribute_name = 'Durability'\n)\n\n4. -- Fourth interpretation: A structurally different approach using subqueries in the WHERE clause to filter IDs instead of joining all four tables into one flat set.\nSELECT s.superhero_name\nFROM superhero s\nJOIN hero_attribute ha ON s.id = ha.hero_id\nWHERE s.publisher_id = (SELECT p.id FROM publisher p WHERE p.publisher_name = 'Dark Horse Comics')\nAND ha.attribute_id = (SELECT a.id FROM attribute a WHERE a.attribute_name = 'Durability')\nORDER BY ha.attribute_value DESC\nLIMIT 1\n\n5. -- Fifth interpretation: Using Nested Isolation to find superheroes whose durability is greater than or equal to the maximum value found for that specific publisher and attribute combination.\nSELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' \nAND a.attribute_name = 'Durability'\nAND ha.attribute_value >= (\n    SELECT MAX(ha_inner.attribute_value)\n    FROM hero_attribute ha_inner\n    JOIN superhero s_inner ON ha_inner.hero_id = s_inner.id\n    JOIN publisher p_inner ON s_inner.publisher_id = p_inner.id\n    JOIN attribute a_inner ON ha_inner.attribute_id = a_inner.id\n    WHERE p_inner.publisher_name = 'Dark Horse Comics' AND a_inner.attribute_name = 'Durability'\n)",
+   "candidates": [
+    {
+     "n": 1,
+     "comment": "Primary interpretation: The question asks for the name of the single superhero with the highest durability value among those published by Dark Horse Comics.",
+     "sql": "SELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' AND a.attribute_name = 'Durability'\nORDER BY ha.attribute_value DESC\nLIMIT 1",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "rows": [
+      [
+       "Dash"
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 2,
+     "comment": "Second interpretation: The question asks for both the name and the durability value to provide evidence of why that superhero has the \"most\".",
+     "sql": "SELECT s.superhero_name, ha.attribute_value\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' AND a.attribute_name = 'Durability'\nORDER BY ha.attribute_value DESC\nLIMIT 1",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "attribute_value"
+     ],
+     "rows": [
+      [
+       "Dash",
+       95
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 3,
+     "comment": "Third interpretation: The question asks for all superheroes who tie for the maximum durability value within Dark Horse Comics, ensuring no one is omitted.",
+     "sql": "SELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' \nAND a.attribute_name = 'Durability'\nAND ha.attribute_value = (\n    SELECT MAX(ha2.attribute_value)\n    FROM hero_attribute ha2\n    JOIN superhero s2 ON ha2.hero_id = s2.id\n    JOIN publisher p2 ON s2.publisher_id = p2.id\n    JOIN attribute a2 ON ha2.attribute_id = a2.id\n    WHERE p2.publisher_name = 'Dark Horse Comics' AND a2.attribute_name = 'Durability'\n)",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "rows": [
+      [
+       "Dash"
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 4,
+     "comment": "Fourth interpretation: A structurally different approach using subqueries in the WHERE clause to filter IDs instead of joining all four tables into one flat set.",
+     "sql": "SELECT s.superhero_name\nFROM superhero s\nJOIN hero_attribute ha ON s.id = ha.hero_id\nWHERE s.publisher_id = (SELECT p.id FROM publisher p WHERE p.publisher_name = 'Dark Horse Comics')\nAND ha.attribute_id = (SELECT a.id FROM attribute a WHERE a.attribute_name = 'Durability')\nORDER BY ha.attribute_value DESC\nLIMIT 1",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "rows": [
+      [
+       "Dash"
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 5,
+     "comment": "Fifth interpretation: Using Nested Isolation to find superheroes whose durability is greater than or equal to the maximum value found for that specific publisher and attribute combination.",
+     "sql": "SELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' \nAND a.attribute_name = 'Durability'\nAND ha.attribute_value >= (\n    SELECT MAX(ha_inner.attribute_value)\n    FROM hero_attribute ha_inner\n    JOIN superhero s_inner ON ha_inner.hero_id = s_inner.id\n    JOIN publisher p_inner ON s_inner.publisher_id = p_inner.id\n    JOIN attribute a_inner ON ha_inner.attribute_id = a_inner.id\n    WHERE p_inner.publisher_name = 'Dark Horse Comics' AND a_inner.attribute_name = 'Durability'\n)",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "rows": [
+      [
+       "Dash"
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    }
+   ],
+   "chosen": 1,
+   "gold_result": {
+    "columns": [
+     "superhero_name"
+    ],
+    "rows": [
+     [
+      "Dash"
+     ]
+    ],
+    "row_count": 1
+   }
+  }
+ },
+ "elapsed_s": 574.5,
+ "difficulty": "challenging",
+ "single_shot_model": "google/gemma-4-31b",
+ "single_shot": {
+  "no_evidence": {
+   "include_evidence": false,
+   "system_prompt": "You are an expert data analyst who writes SQLite queries. Given a database schema and a question, write ONE SQLite SELECT query that answers it. Use only tables and columns that appear in the schema. Output the query and nothing else — no explanation, no markdown fences.",
+   "user_prompt": "Schema:\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nQuestion: Which superhero has the most durability published by Dark Horse Comics?\n\nWrite the SQLite query:",
+   "sql": "SELECT T1.superhero_name FROM superhero AS T1 JOIN publisher AS T2 ON T1.publisher_id = T2.id JOIN hero_attribute AS T3 ON T1.id = T3.hero_id JOIN attribute AS T4 ON T3.attribute_id = T4.id WHERE T2.publisher_name = 'Dark Horse Comics' AND T4.attribute_name = 'durability' ORDER BY T3.attribute_value DESC LIMIT 1",
+   "status": "success",
+   "columns": [
+    "superhero_name"
+   ],
+   "rows": [],
+   "row_count": 0,
+   "truncated": false,
+   "error": null,
+   "matches_gold": false
+  },
+  "with_evidence": {
+   "include_evidence": true,
+   "system_prompt": "You are an expert data analyst who writes SQLite queries. Given a database schema and a question, write ONE SQLite SELECT query that answers it. Use only tables and columns that appear in the schema. Output the query and nothing else — no explanation, no markdown fences.",
+   "user_prompt": "Schema:\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nQuestion: Which superhero has the most durability published by Dark Horse Comics?\nHint: which superhero refers to superhero_name; most durability refers to MAX(attribute_value) WHERE attribute_name = 'durability'; published by Dark Horse Comics refers to publisher_name = 'Dark Horse Comics';\n\nWrite the SQLite query:",
+   "sql": "SELECT T1.superhero_name FROM superhero AS T1 JOIN publisher AS T2 ON T1.publisher_id = T2.id JOIN hero_attribute AS T3 ON T1.id = T3.hero_id JOIN attribute AS T4 ON T3.attribute_id = T4.id WHERE T2.publisher_name = 'Dark Horse Comics' AND T4.attribute_name = 'durability' ORDER BY T3.attribute_value DESC LIMIT 1",
+   "status": "success",
+   "columns": [
+    "superhero_name"
+   ],
+   "rows": [],
+   "row_count": 0,
+   "truncated": false,
+   "error": null,
+   "matches_gold": false
+  }
+ },
+ "stages_noev": {
+  "stage1": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Today is your first day at a new company.\n\nNormally this work takes three days. You do not have three days. You have to do it all today.\n\nHere is how you think through a new client question:\n\nPHASE 1 — Before you look at anything:\nYou read the question and evidence first, with the schema face-down. You write out every question\nyou would want answered and every assumption you are making. You are a philosopher — you think in\nwho, what, when, where, by whom, for whom. You think in counter-proofs. What would make an\nassumption wrong? What encoding or edge case breaks the obvious reading? Stating a wrong assumption\nexplicitly is more honest and useful than a vague non-answer.\n\nPHASE 2 — You look at the schema:\nThe data dictionary arrives: table names, column names, types, primary keys, and foreign key\nrelationships. You do NOT get statistics — no min, max, null counts, or sample values. That is\nwhat Phase 3 is for. Some of your Phase 1 assumptions will be confirmed. Some will be wrong. Some\nnew questions will appear that you could not have thought of without seeing the actual column names.\nYou update every assumption. You tag each question.\n\nPHASE 3 — You write exploratory SQL:\nYou have database access. You are excited and thorough. You know that being new means you earn trust\nby being rigorous, not reckless. You have two phases of thinking behind you — now you turn that into\nexploratory SQL. Write at least 15 queries. The system will reject outputs with fewer than 5 —\nthose records will be skipped entirely and the question will not advance to the next stage.\n\nYou have six proof obligations:\n\n1. EXISTENCE LEMMA (DISTINCT probes):\n   For every categorical column you plan to filter on, run SELECT DISTINCT col FROM table LIMIT 20.\n   This is a direct proof of existence — it proves which values actually live in the database.\n   Without this proof, any filter using that column is an ungrounded conjecture. The system will\n   treat unproven filter values as errors in Stage 2.\n\n2. CONNECTIVITY LEMMA (join verification):\n   Before writing any multi-table JOIN, prove the join path works. Run a query on each side of the\n   join key: SELECT DISTINCT join_col FROM table_a LIMIT 5 and SELECT DISTINCT join_col FROM table_b\n   LIMIT 5. If both return values and they overlap, the join is proven. If either returns zero rows\n   or different types, the join is disproven — do not use it.\n\n3. AXIOMATIC NEUTRALITY (contrapositive for filters):\n   Do not add status, active/inactive, or any other filter unless the question explicitly mentions\n   it. Assume the contrapositive: if the question does not mention a constraint, its absence is\n   correct until you prove otherwise. Run at least one query WITHOUT any assumed filter to establish\n   the unfiltered baseline.\n\n4. COLUMN SUITABILITY PROOFS (null-count & scope):\n   Before using any column for aggregation (COUNT, AVG, SUM, MAX, MIN), run a null-count query:\n   SELECT COUNT(*) - COUNT(col) as nulls, COUNT(*) as total FROM table.\n   If nulls exceed 50% of total, that column is statistically unsuitable as a primary metric —\n   look for alternatives. After identifying your primary filter value, run TWO scope queries:\n   (a) one query WITHOUT the filter — note the total row count (unfiltered universe).\n   (b) one query WITH the filter — note the filtered row count.\n   Compare: if filtered count equals unfiltered count, the filter is a no-op and likely wrong.\n   If filtered count is zero, the value does not exist. Both indicate a scope mismatch.\n\n5. ANNOTATION LEMMA (semantic mapping of opaque columns):\n   If the schema contains column names that are short codes, single letters, abbreviations, or\n   numeric identifiers (e.g., col1, X, stat, code_a), you cannot assume their meaning from the\n   name alone. For every such opaque column that could be relevant to the question, run:\n   SELECT DISTINCT col FROM table LIMIT 20\n   Then annotate each with its apparent meaning based on the values returned. Format your comment:\n   \"ANNOTATION LEMMA: col_name appears to be [description] (values: val1, val2, val3)\"\n   This is a direct proof of semantic identity — without it, any use of an opaque column is an\n   ungrounded assumption about what the column contains.\n\n6. JOIN VERIFICATION (non-key joins):\n   The schema marks primary keys [PK] and foreign keys [FK]. If you plan to join two tables on\n   a column that is NOT marked as a PK or FK, you must prove the join is valid by querying both\n   sides: SELECT DISTINCT col FROM table_a LIMIT 5 and SELECT DISTINCT col FROM table_b LIMIT 5.\n   If the values do not overlap, the join is invalid. PK/FK joins are pre-verified by the schema.\n\nAdditional rules:\n- Multi-part question decomposition: Before writing any Phase 1 assumptions, read the\n  question and ask: does it contain multiple distinct sub-questions? A multi-part question\n  typically uses connectors like \"and\", \"also\", \"as well as\", or asks for two different\n  pieces of information in one sentence (e.g. \"What is X? What is Y for Z?\"). If yes,\n  list each sub-question separately in Phase 1 and treat them as independent proof obligations.\n  Your Phase 3 queries must cover every part — a query that only answers one part of a\n  multi-part question is incomplete. The final SQL must return all parts in a single query\n  (using JOIN, subquery, or multiple SELECT expressions as appropriate).\n- Cover all tables that could relate to the question, not just the most obvious one.\n- SELECT only the columns needed for each specific check — no extra \"context\" columns.\n- Identifier Precision: Determine whether the question asks for a primary identifier\n  (ID, code, number) or a descriptive label (name, title, description). If both columns exist\n  side by side in the same table, run a DISTINCT query on each. Your Phase 1 assumptions must\n  explicitly state which column type the question wants. This prevents the Director from\n  guessing at the SELECT column later.\n- Each query has exactly one SQL comment (-- ...) that is a single complete sentence explaining\n  why this specific piece of information matters for answering the client question.\n- Always use LIMIT. Check both heads and tails for any table you are uncertain about.\n- Do NOT write the final answer query — that comes after you see what these return.\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\nA numbered list. For each item: state the question, then immediately state your current assumption.\nAssumptions can be wrong — that is expected and useful.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, explaining why these are the\nright questions to ask.\n\n## PHASE 2 — SCHEMA REVIEW\nA numbered list. For each item from Phase 1, mark it with exactly one tag:\n  [CONFIRMED] — the profile supports your Phase 1 assumption\n  [REVISED]   — you need to update your assumption based on what you see\n  [NEW]       — a question that did not exist in Phase 1, raised by the schema or statistics\n  [DROPPED]   — this question is no longer relevant given what the profile shows\n\nAfter the tag, give a brief one-sentence reason.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, describing what the profile\nrevealed and what still requires direct database investigation.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\nA numbered list of SQL queries. Minimum 15 queries.\n\nSQLite rules — this is non-negotiable:\n- The database engine is SQLite. Write only SQL that SQLite supports.\n- Column names that contain spaces, parentheses, or special characters MUST be\n  wrapped in double quotes. Example: \"County Name\", \"Free Meal Count (K-12)\".\n  Never write an unquoted column name that contains a space.\n- Do not use window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.).\n- Always use LIMIT.\n- Do NOT write the final answer query.\n\nOutput format for Phase 3 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the department_type column.\n   SELECT DISTINCT department_type FROM departments LIMIT 20;\n\n2. -- SCOPE CHECK: Establish the time range covered by the data.\n   SELECT MIN(hire_date), MAX(hire_date) FROM employees LIMIT 1;\n\n3. -- NULL-COUNT PROOF: Verify salary column suitability for aggregation.\n   SELECT COUNT(*) - COUNT(salary) as nulls, COUNT(*) as total FROM employees LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between employees and departments.\n   SELECT DISTINCT department_id FROM employees LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Other side of the join.\n   SELECT DISTINCT id FROM departments LIMIT 5;\n\n6. -- ANNOTATION LEMMA: Determine what opaque column 'dept_code' actually contains.\n   SELECT DISTINCT dept_code FROM departments LIMIT 20;\n\n7. -- JOIN VERIFICATION: Verify non-key join between employees.role and roles.role_name.\n   SELECT DISTINCT role FROM employees LIMIT 5;\n\n8. -- SCOPE PROOF: Unfiltered universe count for the target table.\n   SELECT COUNT(*) FROM employees LIMIT 1;\n\n9. -- SCOPE PROOF: Filtered count — verify filter narrows to expected scope.\n   SELECT COUNT(*) FROM employees WHERE department_type = 'Engineering' LIMIT 1;",
+   "user_prompt": "A new client question just arrived on your desk.\n\nQuestion: Which superhero has the most durability published by Dark Horse Comics?\n\nDatabase: superhero\n\nSchema (table names, column names, types, primary keys, foreign keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nWork through all three phases now.",
+   "response": "## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\n1. Does \"most durability\" refer to a specific record in the attribute table where the name is 'durability'? Assumption: There is an entry in the attribute table with the exact string 'durability'.\n2. Is \"Dark Horse Comics\" the exact string used for the publisher? Assumption: The publisher_name column contains the exact value 'Dark Horse Comics'.\n3. Which name does the client want returned? Assumption: The client wants the descriptive label superhero_name rather than the full_name.\n4. How is durability quantified in the data? Assumption: Higher integer values in the attribute_value column represent greater durability.\n5. Is there only one publisher that matches \"Dark Horse Comics\"? Assumption: There are no multiple variations (e.g., \"Dark Horse Comics Intl\") that need to be aggregated.\n\nREASONING\nI must identify which specific attribute corresponds to the concept of durability.\nThe exact string for the publisher is required to ensure the filter does not return zero results.\nDistinguishing between a superhero's alias and their real name is necessary for identifier precision.\nI am assuming that \"most\" translates directly to the maximum numerical value in the attributes table.\nVerifying if multiple publishers exist under similar names prevents data omission.\n\n## PHASE 2 — SCHEMA REVIEW\n1. [CONFIRMED] The attribute table contains attribute_name and links to hero_attribute for values.\n2. [CONFIRMED] The publisher table contains publisher_name which can be filtered for 'Dark Horse Comics'.\n3. [CONFIRMED] Both superhero_name and full_name exist in the superhero table; I will verify both.\n4. [CONFIRMED] attribute_value is an integer, allowing for a MAX() aggregation to find \"most\".\n5. [CONFIRMED] The publisher table structure supports a unique lookup for the company name.\n\nREASONING\nThe schema confirms a normalized relationship between superheroes, their publishers, and their attributes.\nJoin paths are clearly established via foreign keys from superhero to both publisher and hero_attribute.\nI have confirmed that durability is stored as a value associated with an attribute ID.\nDirect database investigation is now required to prove the existence of the specific strings 'durability' and 'Dark Horse Comics'.\nNull counts for the attribute_value column must be checked to ensure the metric is statistically viable.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\n1. -- EXISTENCE LEMMA: Confirm that 'Dark Horse Comics' exists in the publisher table.\nSELECT DISTINCT publisher_name FROM publisher LIMIT 20;\n\n2. -- EXISTENCE LEMMA: Confirm that 'durability' exists as a named attribute.\nSELECT DISTINCT attribute_name FROM attribute LIMIT 20;\n\n3. -- CONNECTIVITY LEMMA: Verify join key overlap between publisher and superhero (left side).\nSELECT DISTINCT id FROM publisher LIMIT 5;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between publisher and superhero (right side).\nSELECT DISTINCT publisher_id FROM superhero LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_attribute (left side).\nSELECT DISTINCT id FROM superhero LIMIT 5;\n\n6. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_attribute (right side).\nSELECT DISTINCT hero_id FROM hero_attribute LIMIT 5;\n\n7. -- CONNECTIVITY LEMMA: Verify join key overlap between hero_attribute and attribute (left side).\nSELECT DISTINCT attribute_id FROM hero_attribute LIMIT 5;\n\n8. -- CONNECTIVITY LEMMA: Verify join key overlap between hero_attribute and attribute (right side).\nSELECT DISTINCT id FROM attribute LIMIT 5;\n\n9. -- COLUMN SUITABILITY PROOF: Check for nulls in the durability value column to ensure it can be aggregated.\nSELECT COUNT(*) - COUNT(attribute_value) as nulls, COUNT(*) as total FROM hero_attribute LIMIT 1;\n\n10. -- AXIOMATIC NEUTRALITY: Establish an unfiltered baseline of all superheroes.\nSELECT COUNT(*) FROM superhero LIMIT 1;\n\n11. -- SCOPE PROOF: Verify the number of superheroes published by Dark Horse Comics to ensure the filter is not a no-op or empty.\nSELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.name = 'Dark Horse Comics' LIMIT 1;\n\n12. -- SCOPE PROOF: Establish an unfiltered baseline of all hero attributes.\nSELECT COUNT(*) FROM hero_attribute LIMIT 1;\n\n13. -- SCOPE PROOF: Verify the number of records associated with the durability attribute to ensure data exists for this metric.\nSELECT COUNT(*) FROM hero_attribute JOIN attribute ON hero_attribute.attribute_id = attribute.id WHERE attribute.attribute_name = 'durability' LIMIT 1;\n\n14. -- IDENTIFIER PRECISION: Examine superhero names to determine if they are the primary descriptive labels.\nSELECT DISTINCT superhero_name FROM superhero LIMIT 20;\n\n15. -- IDENTIFIER PRECISION: Examine full names to compare against superhero names for output selection.\nSELECT DISTINCT full_name FROM superhero LIMIT 20;",
+   "phase1": "1. Does \"most durability\" refer to a specific record in the attribute table where the name is 'durability'? Assumption: There is an entry in the attribute table with the exact string 'durability'.\n2. Is \"Dark Horse Comics\" the exact string used for the publisher? Assumption: The publisher_name column contains the exact value 'Dark Horse Comics'.\n3. Which name does the client want returned? Assumption: The client wants the descriptive label superhero_name rather than the full_name.\n4. How is durability quantified in the data? Assumption: Higher integer values in the attribute_value column represent greater durability.\n5. Is there only one publisher that matches \"Dark Horse Comics\"? Assumption: There are no multiple variations (e.g., \"Dark Horse Comics Intl\") that need to be aggregated.\n\nREASONING\nI must identify which specific attribute corresponds to the concept of durability.\nThe exact string for the publisher is required to ensure the filter does not return zero results.\nDistinguishing between a superhero's alias and their real name is necessary for identifier precision.\nI am assuming that \"most\" translates directly to the maximum numerical value in the attributes table.\nVerifying if multiple publishers exist under similar names prevents data omission.",
+   "phase2": "1. [CONFIRMED] The attribute table contains attribute_name and links to hero_attribute for values.\n2. [CONFIRMED] The publisher table contains publisher_name which can be filtered for 'Dark Horse Comics'.\n3. [CONFIRMED] Both superhero_name and full_name exist in the superhero table; I will verify both.\n4. [CONFIRMED] attribute_value is an integer, allowing for a MAX() aggregation to find \"most\".\n5. [CONFIRMED] The publisher table structure supports a unique lookup for the company name.\n\nREASONING\nThe schema confirms a normalized relationship between superheroes, their publishers, and their attributes.\nJoin paths are clearly established via foreign keys from superhero to both publisher and hero_attribute.\nI have confirmed that durability is stored as a value associated with an attribute ID.\nDirect database investigation is now required to prove the existence of the specific strings 'durability' and 'Dark Horse Comics'.\nNull counts for the attribute_value column must be checked to ensure the metric is statistically viable.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "EXISTENCE LEMMA: Confirm that 'Dark Horse Comics' exists in the publisher table.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       ""
+      ],
+      [
+       "ABC Studios"
+      ],
+      [
+       "Dark Horse Comics"
+      ],
+      [
+       "DC Comics"
+      ],
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "EXISTENCE LEMMA: Confirm that 'durability' exists as a named attribute.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [
+      [
+       "Intelligence"
+      ],
+      [
+       "Strength"
+      ],
+      [
+       "Speed"
+      ],
+      [
+       "Durability"
+      ],
+      [
+       "Power"
+      ]
+     ],
+     "row_count": 6,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between publisher and superhero (left side).",
+     "sql": "SELECT DISTINCT id FROM publisher LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between publisher and superhero (right side).",
+     "sql": "SELECT DISTINCT publisher_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "publisher_id"
+     ],
+     "head": [
+      [
+       13
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       15
+      ],
+      [
+       25
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_attribute (left side).",
+     "sql": "SELECT DISTINCT id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_attribute (right side).",
+     "sql": "SELECT DISTINCT hero_id FROM hero_attribute LIMIT 5",
+     "status": "success",
+     "columns": [
+      "hero_id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between hero_attribute and attribute (left side).",
+     "sql": "SELECT DISTINCT attribute_id FROM hero_attribute LIMIT 5",
+     "status": "success",
+     "columns": [
+      "attribute_id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between hero_attribute and attribute (right side).",
+     "sql": "SELECT DISTINCT id FROM attribute LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in the durability value column to ensure it can be aggregated.",
+     "sql": "SELECT COUNT(*) - COUNT(attribute_value) as nulls, COUNT(*) as total FROM hero_attribute LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       3738
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "AXIOMATIC NEUTRALITY: Establish an unfiltered baseline of all superheroes.",
+     "sql": "SELECT COUNT(*) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "SCOPE PROOF: Verify the number of superheroes published by Dark Horse Comics to ensure the filter is not a no-op or empty.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.name = 'Dark Horse Comics' LIMIT 1",
+     "status": "error",
+     "columns": [],
+     "head": [],
+     "row_count": null,
+     "error": "no such column: publisher.name"
+    },
+    {
+     "n": "12",
+     "comment": "SCOPE PROOF: Establish an unfiltered baseline of all hero attributes.",
+     "sql": "SELECT COUNT(*) FROM hero_attribute LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       3738
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "SCOPE PROOF: Verify the number of records associated with the durability attribute to ensure data exists for this metric.",
+     "sql": "SELECT COUNT(*) FROM hero_attribute JOIN attribute ON hero_attribute.attribute_id = attribute.id WHERE attribute.attribute_name = 'durability' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "IDENTIFIER PRECISION: Examine superhero names to determine if they are the primary descriptive labels.",
+     "sql": "SELECT DISTINCT superhero_name FROM superhero LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "head": [
+      [
+       "3-D Man"
+      ],
+      [
+       "A-Bomb"
+      ],
+      [
+       "Abe Sapien"
+      ],
+      [
+       "Abin Sur"
+      ],
+      [
+       "Abomination"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "IDENTIFIER PRECISION: Examine full names to compare against superhero names for output selection.",
+     "sql": "SELECT DISTINCT full_name FROM superhero LIMIT 20",
+     "status": "success",
+     "columns": [
+      "full_name"
+     ],
+     "head": [
+      [
+       "Charles Chandler"
+      ],
+      [
+       "Richard Milhouse Jones"
+      ],
+      [
+       "Abraham Sapien"
+      ],
+      [
+       "-"
+      ],
+      [
+       "Emil Blonsky"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 14
+  },
+  "stage2": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Yesterday you worked through a client question in three phases:\nPhase 1 — questions and assumptions written before seeing the schema.\nPhase 2 — schema review, assumptions updated against column profiles.\nPhase 3 — exploratory SQL queries written to investigate the data.\n\nNow the queries have run. You have the results in front of you.\n\nYour job today is three phases:\n\nPHASE 4 — REVISED ASSUMPTIONS\nGo through every assumption you made in Phases 1 and 2. For each one, state what the query results show.\nTag each item with exactly one of:\n  [CONFIRMED]    — a PASSED query directly proves this assumption. Cite the query number.\n  [REVISED]      — results partially support but require adjustment. State what changed and why.\n  [CONTRADICTED] — a query returned zero rows, an error, or unexpected data that disproves this\n                   hypothesis. This is not a failure — it is a proof by contradiction. State clearly\n                   what was disproven and what it implies.\n  [OPEN-VALUE]   — an assumption involves a string filter value that was NEVER confirmed with a\n                   SELECT DISTINCT query. This is an open conjecture — the Director cannot use it.\n                   Phase 5 MUST include a DISTINCT query to resolve it.\n  [WRONG-TABLE]  — query results suggest the data does not live in the assumed table (column doesn't\n                   exist, zero rows where many were expected, data type mismatch). The hypothesis\n                   about which table to use is disproven. Phase 5 must explore the alternative.\n  [LIKE-VS-ENUM] — the analyst used LIKE or a substring match on a name/description column, but\n                   the schema may contain a separate coded or enum column for the same concept\n                   (e.g., filtering by name string when a type_code column exists). Phase 5 MUST\n                   include a DISTINCT query on the potential enum column to check if it provides\n                   a cleaner, exact-match filter.\n\nAfter the tag, write one sentence citing which query result led to this conclusion.\n\nContrapositive test for filters: For each filter in your hypothesis, apply the contrapositive test:\n\"If the question does not explicitly mention this constraint, then it should NOT appear in the WHERE\nclause.\" If Stage 1 added a filter that the question never asked for (e.g. a status filter, an\nactive/inactive check), tag it [CONTRADICTED] with reason: \"contrapositive — question does not\nmention this constraint.\"\n\nPHASE 4b — HYPOTHESIS REVIEW\nWrite a short paragraph (3–5 sentences) answering:\n  1. Does your original hypothesis about how to answer this question still hold?\n     State clearly: YES it holds, NO it needs to change, or PARTIALLY — explain what changed.\n  2. Did the query results reveal anything you did not expect? If so, what?\n  3. What is your updated hypothesis for the final SQL approach?\n\nYour updated hypothesis must name:\n  - The exact table name(s) as they appear in the schema\n  - The exact column name(s) — quoted if they contain spaces\n  - The exact confirmed string value (if a filter is needed) — proven by a DISTINCT query\n  - The exact join path (if tables must be joined) — proven by connectivity lemma queries\n  Vague hypotheses like \"filter by type\" or \"join on the ID column\" are rejected.\n  If any piece is uncertain, tag it [OPEN-VALUE] and resolve it in Phase 5.\n\nPHASE 5 — CONFIRMATION QUERIES\nWrite at least 15 new SQL queries. The system will reject outputs with fewer than 5 — those records\nwill be skipped entirely. These are not exploratory — they are targeted at the gaps, surprises, and\nrevised assumptions from Phases 4 and 4b.\n\nMandatory resolution: Every [OPEN-VALUE] and [WRONG-TABLE] from Phase 4 MUST have a corresponding\nresolution query in Phase 5. An unresolved conjecture is a gap that the Director will fill with\nguesswork — and guesswork is how we get wrong answers.\n  - For [OPEN-VALUE]: run SELECT DISTINCT col FROM table LIMIT 20 to prove the exact value.\n  - For [WRONG-TABLE]: run exploratory queries against the alternative table.\n  - For [LIKE-VS-ENUM]: run SELECT DISTINCT enum_col FROM table LIMIT 20. If the enum column\n    provides exact values that match the question's intent, recommend it over the LIKE filter\n    in your Phase 4b hypothesis update.\n\nDo not repeat queries from Phase 3. Each query must address something new.\n\nSQLite rules — same as before, non-negotiable:\n- Column names with spaces or special characters MUST be double-quoted: \"County Name\"\n- No window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.)\n- Always use LIMIT\n- Do NOT write the final answer query\n\nOutput format for Phase 5 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- RESOLVE [OPEN-VALUE]: Prove what distinct values exist in order_status.\n   SELECT DISTINCT order_status FROM orders LIMIT 20;\n\n2. -- RESOLVE [WRONG-TABLE]: Check if revenue data lives in invoices instead of orders.\n   SELECT COUNT(*), MIN(total), MAX(total) FROM invoices LIMIT 1;\n\n3. -- CONTRAPOSITIVE TEST: Verify results without the assumed 'active' filter.\n   SELECT COUNT(*) FROM customers LIMIT 1;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check if department_code is a cleaner filter than department_name.\n   SELECT DISTINCT department_code, department_name FROM departments LIMIT 20;\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 4 — REVISED ASSUMPTIONS\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\n## PHASE 5 — CONFIRMATION QUERIES",
+   "user_prompt": "The query results are in. Time to review.\n\nQuestion: Which superhero has the most durability published by Dark Horse Comics?\n\nDatabase: superhero\n\nSchema (same as before — table names, column names, types, join keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\n---\n\nYour Phase 1 — Two Semantic Hypotheses:\n\n1. Does \"most durability\" refer to a specific record in the attribute table where the name is 'durability'? Assumption: There is an entry in the attribute table with the exact string 'durability'.\n2. Is \"Dark Horse Comics\" the exact string used for the publisher? Assumption: The publisher_name column contains the exact value 'Dark Horse Comics'.\n3. Which name does the client want returned? Assumption: The client wants the descriptive label superhero_name rather than the full_name.\n4. How is durability quantified in the data? Assumption: Higher integer values in the attribute_value column represent greater durability.\n5. Is there only one publisher that matches \"Dark Horse Comics\"? Assumption: There are no multiple variations (e.g., \"Dark Horse Comics Intl\") that need to be aggregated.\n\nREASONING\nI must identify which specific attribute corresponds to the concept of durability.\nThe exact string for the publisher is required to ensure the filter does not return zero results.\nDistinguishing between a superhero's alias and their real name is necessary for identifier precision.\nI am assuming that \"most\" translates directly to the maximum numerical value in the attributes table.\nVerifying if multiple publishers exist under similar names prevents data omission.\n\n---\n\nYour Phase 2 — Schema Deep Dive:\n\n1. [CONFIRMED] The attribute table contains attribute_name and links to hero_attribute for values.\n2. [CONFIRMED] The publisher table contains publisher_name which can be filtered for 'Dark Horse Comics'.\n3. [CONFIRMED] Both superhero_name and full_name exist in the superhero table; I will verify both.\n4. [CONFIRMED] attribute_value is an integer, allowing for a MAX() aggregation to find \"most\".\n5. [CONFIRMED] The publisher table structure supports a unique lookup for the company name.\n\nREASONING\nThe schema confirms a normalized relationship between superheroes, their publishers, and their attributes.\nJoin paths are clearly established via foreign keys from superhero to both publisher and hero_attribute.\nI have confirmed that durability is stored as a value associated with an attribute ID.\nDirect database investigation is now required to prove the existence of the specific strings 'durability' and 'Dark Horse Comics'.\nNull counts for the attribute_value column must be checked to ensure the metric is statistically viable.\n\n---\n\nPhase 3 — Exploratory Query Results:\n\n1. -- EXISTENCE LEMMA: Confirm that 'Dark Horse Comics' exists in the publisher table.\n   SELECT DISTINCT publisher_name FROM publisher LIMIT 20\n   Columns: publisher_name\n   ['']\n   ['ABC Studios']\n   ['Dark Horse Comics']\n   ... (20 rows total)\n\n2. -- EXISTENCE LEMMA: Confirm that 'durability' exists as a named attribute.\n   SELECT DISTINCT attribute_name FROM attribute LIMIT 20\n   Columns: attribute_name\n   ['Intelligence']\n   ['Strength']\n   ['Speed']\n   ... (6 rows total)\n\n3. -- CONNECTIVITY LEMMA: Verify join key overlap between publisher and superhero (left side).\n   SELECT DISTINCT id FROM publisher LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between publisher and superhero (right side).\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5\n   Columns: publisher_id\n   [13]\n   [3]\n   [4]\n   ... (5 rows total)\n\n5. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_attribute (left side).\n   SELECT DISTINCT id FROM superhero LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n6. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_attribute (right side).\n   SELECT DISTINCT hero_id FROM hero_attribute LIMIT 5\n   Columns: hero_id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n7. -- CONNECTIVITY LEMMA: Verify join key overlap between hero_attribute and attribute (left side).\n   SELECT DISTINCT attribute_id FROM hero_attribute LIMIT 5\n   Columns: attribute_id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n8. -- CONNECTIVITY LEMMA: Verify join key overlap between hero_attribute and attribute (right side).\n   SELECT DISTINCT id FROM attribute LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n9. -- COLUMN SUITABILITY PROOF: Check for nulls in the durability value column to ensure it can be aggregated.\n   SELECT COUNT(*) - COUNT(attribute_value) as nulls, COUNT(*) as total FROM hero_attribute LIMIT 1\n   Columns: nulls, total\n   [0, 3738]\n\n10. -- AXIOMATIC NEUTRALITY: Establish an unfiltered baseline of all superheroes.\n   SELECT COUNT(*) FROM superhero LIMIT 1\n   Columns: COUNT(*)\n   [750]\n\n11. -- SCOPE PROOF: Verify the number of superheroes published by Dark Horse Comics to ensure the filter is not a no-op or empty.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.name = 'Dark Horse Comics' LIMIT 1\n   ERROR: no such column: publisher.name\n\n12. -- SCOPE PROOF: Establish an unfiltered baseline of all hero attributes.\n   SELECT COUNT(*) FROM hero_attribute LIMIT 1\n   Columns: COUNT(*)\n   [3738]\n\n13. -- SCOPE PROOF: Verify the number of records associated with the durability attribute to ensure data exists for this metric.\n   SELECT COUNT(*) FROM hero_attribute JOIN attribute ON hero_attribute.attribute_id = attribute.id WHERE attribute.attribute_name = 'durability' LIMIT 1\n   Columns: COUNT(*)\n   [0]\n\n14. -- IDENTIFIER PRECISION: Examine superhero names to determine if they are the primary descriptive labels.\n   SELECT DISTINCT superhero_name FROM superhero LIMIT 20\n   Columns: superhero_name\n   ['3-D Man']\n   ['A-Bomb']\n   ['Abe Sapien']\n   ... (20 rows total)\n\n15. -- IDENTIFIER PRECISION: Examine full names to compare against superhero names for output selection.\n   SELECT DISTINCT full_name FROM superhero LIMIT 20\n   Columns: full_name\n   ['Charles Chandler']\n   ['Richard Milhouse Jones']\n   ['Abraham Sapien']\n   ... (20 rows total)\n\n---\n\nWork through Phase 4 and Phase 5 now.",
+   "response": "## PHASE 4 — REVISED ASSUMPTIONS\n\n1. Assumption: There is an entry in the attribute table with the exact string 'durability'. [CONTRADICTED] — Query 13 returned zero rows, proving that the exact lowercase string 'durability' is not used as a filter value.\n2. Assumption: The publisher_name column contains the exact value 'Dark Horse Comics'. [CONFIRMED] — Query 1 explicitly lists 'Dark Horse Comics' in the results.\n3. Assumption: The client wants the descriptive label superhero_name rather than the full_name. [CONFIRMED] — Queries 14 and 15 show that superhero_name provides the alias (e.g., 'A-Bomb') while full_name provides the legal name, making superhero_name the standard for \"Which superhero\".\n4. Assumption: Higher integer values in the attribute_value column represent greater durability. [REVISED] — While Query 9 confirms that attribute_value is a populated integer column, this logic can only be applied once the correct attribute name is identified, as 'durability' does not exist.\n5. Assumption: There are no multiple variations of \"Dark Horse Comics\" in the publisher table. [LIKE-VS-ENUM] — Query 1 showed one instance, but did not perform a wildcard search to rule out variations like \"Dark Horse Comics Intl\".\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\nNO, the original hypothesis needs to change. The query results revealed that the attribute name 'durability' does not exist in the database (Query 13), and there are only six total attributes available (Query 2). I must identify which of these six attributes represents \"durability\" before a final query can be written.\n\nMy updated hypothesis is to join the publisher table, superhero table, hero_attribute table, and attribute table. I will filter by `publisher_name = 'Dark Horse Comics'` and use the corrected attribute name (to be identified in Phase 5) that corresponds to durability. I will then order the results by `attribute_value` in descending order to find the superhero with the maximum value.\n\nThe join path is: publisher.id -> superhero.publisher_id -> superhero.id -> hero_attribute.hero_id -> hero_attribute.attribute_id -> attribute.id.\n\n## PHASE 5 — CONFIRMATION QUERIES\n\n1. -- RESOLVE [CONTRADICTED]: List all available attributes to find the correct string for durability.\n   SELECT DISTINCT attribute_name FROM attribute LIMIT 20;\n\n2. -- RESOLVE [LIKE-VS-ENUM]: Check for any variations of Dark Horse Comics in the publisher table.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Dark Horse%' LIMIT 20;\n\n3. -- RESOLVE [CONTRADICTED]: Specifically check if 'Durability' (capitalized) exists as an attribute.\n   SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name = 'Durability' LIMIT 1;\n\n4. -- RESOLVE [CONTRADICTED]: Check for attributes that might be synonyms for durability, such as Toughness.\n   SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%Tough%' LIMIT 20;\n\n5. -- RESOLVE [CONTRADICTED]: Check for attributes that might be synonyms for durability, such as Endurance.\n   SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%Endur%' LIMIT 20;\n\n6. -- RESOLVE [CONTRADICTED]: Check for attributes that might be synonyms for durability, such as Stamina.\n   SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%Stamina%' LIMIT 20;\n\n7. -- EXPLORATORY: Identify which attributes are actually assigned to superheroes from Dark Horse Comics.\n   SELECT DISTINCT a.attribute_name \n   FROM attribute a \n   JOIN hero_attribute ha ON a.id = ha.attribute_id \n   JOIN superhero s ON ha.hero_id = s.id \n   JOIN publisher p ON s.publisher_id = p.id \n   WHERE p.publisher_name = 'Dark Horse Comics' \n   LIMIT 20;\n\n8. -- DATA DISTRIBUTION: Check the range of values for all attributes to see which one behaves like a durability score.\n   SELECT a.attribute_name, MIN(ha.attribute_value), MAX(ha.attribute_value) \n   FROM attribute a \n   JOIN hero_attribute ha ON a.id = ha.attribute_id \n   GROUP BY a.attribute_name \n   LIMIT 20;\n\n9. -- RESOLVE [LIKE-VS-ENUM]: Verify if there is a publisher_code or similar enum column in the publisher table.\n   SELECT * FROM publisher LIMIT 5;\n\n10. -- CONNECTIVITY: Ensure that superheroes from Dark Horse Comics actually have entries in the hero_attribute table.\n    SELECT COUNT(*) \n    FROM superhero s \n    JOIN publisher p ON s.publisher_id = p.id \n    JOIN hero_attribute ha ON s.id = ha.hero_id \n    WHERE p.publisher_name = 'Dark Horse Comics' \n    LIMIT 1;\n\n11. -- IDENTIFIER PRECISION: Check if any superheroes have multiple entries for the same attribute.\n    SELECT hero_id, attribute_id, COUNT(*) \n    FROM hero_attribute \n    GROUP BY hero_id, attribute_id \n    HAVING COUNT(*) > 1 \n    LIMIT 20;\n\n12. -- SCOPE PROOF: Check for any attributes that might be named 'durability' but contain leading/trailing spaces.\n    SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%durability%' LIMIT 20;\n\n13. -- DATA INTEGRITY: Verify if there are superheroes with no publisher assigned.\n    SELECT COUNT(*) FROM superhero WHERE publisher_id IS NULL LIMIT 1;\n\n14. -- DATA INTEGRITY: Verify if there are attributes with no associated heroes.\n    SELECT COUNT(*) FROM attribute a LEFT JOIN hero_attribute ha ON a.id = ha.attribute_id WHERE ha.hero_id IS NULL LIMIT 1;\n\n15. -- RESOLVE [CONTRADICTED]: Check for any case-insensitive match for durability in the attribute table.\n    SELECT DISTINCT attribute_name FROM attribute WHERE LOWER(attribute_name) = 'durability' LIMIT 20;",
+   "phase4": "1. Assumption: There is an entry in the attribute table with the exact string 'durability'. [CONTRADICTED] — Query 13 returned zero rows, proving that the exact lowercase string 'durability' is not used as a filter value.\n2. Assumption: The publisher_name column contains the exact value 'Dark Horse Comics'. [CONFIRMED] — Query 1 explicitly lists 'Dark Horse Comics' in the results.\n3. Assumption: The client wants the descriptive label superhero_name rather than the full_name. [CONFIRMED] — Queries 14 and 15 show that superhero_name provides the alias (e.g., 'A-Bomb') while full_name provides the legal name, making superhero_name the standard for \"Which superhero\".\n4. Assumption: Higher integer values in the attribute_value column represent greater durability. [REVISED] — While Query 9 confirms that attribute_value is a populated integer column, this logic can only be applied once the correct attribute name is identified, as 'durability' does not exist.\n5. Assumption: There are no multiple variations of \"Dark Horse Comics\" in the publisher table. [LIKE-VS-ENUM] — Query 1 showed one instance, but did not perform a wildcard search to rule out variations like \"Dark Horse Comics Intl\".",
+   "phase4b": "NO, the original hypothesis needs to change. The query results revealed that the attribute name 'durability' does not exist in the database (Query 13), and there are only six total attributes available (Query 2). I must identify which of these six attributes represents \"durability\" before a final query can be written.\n\nMy updated hypothesis is to join the publisher table, superhero table, hero_attribute table, and attribute table. I will filter by `publisher_name = 'Dark Horse Comics'` and use the corrected attribute name (to be identified in Phase 5) that corresponds to durability. I will then order the results by `attribute_value` in descending order to find the superhero with the maximum value.\n\nThe join path is: publisher.id -> superhero.publisher_id -> superhero.id -> hero_attribute.hero_id -> hero_attribute.attribute_id -> attribute.id.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "RESOLVE [CONTRADICTED]: List all available attributes to find the correct string for durability.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [
+      [
+       "Intelligence"
+      ],
+      [
+       "Strength"
+      ],
+      [
+       "Speed"
+      ],
+      [
+       "Durability"
+      ],
+      [
+       "Power"
+      ]
+     ],
+     "row_count": 6,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Check for any variations of Dark Horse Comics in the publisher table.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Dark Horse%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Dark Horse Comics"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "RESOLVE [CONTRADICTED]: Specifically check if 'Durability' (capitalized) exists as an attribute.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name = 'Durability' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [
+      [
+       "Durability"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "RESOLVE [CONTRADICTED]: Check for attributes that might be synonyms for durability, such as Toughness.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%Tough%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "RESOLVE [CONTRADICTED]: Check for attributes that might be synonyms for durability, such as Endurance.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%Endur%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "RESOLVE [CONTRADICTED]: Check for attributes that might be synonyms for durability, such as Stamina.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%Stamina%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "EXPLORATORY: Identify which attributes are actually assigned to superheroes from Dark Horse Comics.",
+     "sql": "SELECT DISTINCT a.attribute_name \n   FROM attribute a \n   JOIN hero_attribute ha ON a.id = ha.attribute_id \n   JOIN superhero s ON ha.hero_id = s.id \n   JOIN publisher p ON s.publisher_id = p.id \n   WHERE p.publisher_name = 'Dark Horse Comics' \n   LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [
+      [
+       "Intelligence"
+      ],
+      [
+       "Strength"
+      ],
+      [
+       "Speed"
+      ],
+      [
+       "Durability"
+      ],
+      [
+       "Power"
+      ]
+     ],
+     "row_count": 6,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "DATA DISTRIBUTION: Check the range of values for all attributes to see which one behaves like a durability score.",
+     "sql": "SELECT a.attribute_name, MIN(ha.attribute_value), MAX(ha.attribute_value) \n   FROM attribute a \n   JOIN hero_attribute ha ON a.id = ha.attribute_id \n   GROUP BY a.attribute_name \n   LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name",
+      "MIN(ha.attribute_value)",
+      "MAX(ha.attribute_value)"
+     ],
+     "head": [
+      [
+       "Combat",
+       5,
+       100
+      ],
+      [
+       "Durability",
+       5,
+       100
+      ],
+      [
+       "Intelligence",
+       35,
+       100
+      ],
+      [
+       "Power",
+       5,
+       100
+      ],
+      [
+       "Speed",
+       5,
+       100
+      ]
+     ],
+     "row_count": 6,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Verify if there is a publisher_code or similar enum column in the publisher table.",
+     "sql": "SELECT * FROM publisher LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id",
+      "publisher_name"
+     ],
+     "head": [
+      [
+       1,
+       ""
+      ],
+      [
+       2,
+       "ABC Studios"
+      ],
+      [
+       3,
+       "Dark Horse Comics"
+      ],
+      [
+       4,
+       "DC Comics"
+      ],
+      [
+       5,
+       "George Lucas"
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "CONNECTIVITY: Ensure that superheroes from Dark Horse Comics actually have entries in the hero_attribute table.",
+     "sql": "SELECT COUNT(*) \n    FROM superhero s \n    JOIN publisher p ON s.publisher_id = p.id \n    JOIN hero_attribute ha ON s.id = ha.hero_id \n    WHERE p.publisher_name = 'Dark Horse Comics' \n    LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       102
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "IDENTIFIER PRECISION: Check if any superheroes have multiple entries for the same attribute.",
+     "sql": "SELECT hero_id, attribute_id, COUNT(*) \n    FROM hero_attribute \n    GROUP BY hero_id, attribute_id \n    HAVING COUNT(*) > 1 \n    LIMIT 20",
+     "status": "success",
+     "columns": [
+      "hero_id",
+      "attribute_id",
+      "COUNT(*)"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "SCOPE PROOF: Check for any attributes that might be named 'durability' but contain leading/trailing spaces.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%durability%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [
+      [
+       "Durability"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "DATA INTEGRITY: Verify if there are superheroes with no publisher assigned.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       3
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "DATA INTEGRITY: Verify if there are attributes with no associated heroes.",
+     "sql": "SELECT COUNT(*) FROM attribute a LEFT JOIN hero_attribute ha ON a.id = ha.attribute_id WHERE ha.hero_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "RESOLVE [CONTRADICTED]: Check for any case-insensitive match for durability in the attribute table.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE LOWER(attribute_name) = 'durability' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [
+      [
+       "Durability"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage3": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "\nYou are the director. You are reviewing the work of a junior analyst who investigated a client\nquestion by running SQL queries against the actual database.\n\nYour analyst is good but not infallible. They may have explored the right tables or the wrong ones.\nWhat they give you is raw data from the database — what columns exist, what values appeared, which\njoins worked, which failed. Your job is to use that evidence to write the final SQL.\n\nRules:\n  1. Use the analyst's query results as your evidence base. Column names, table names, join keys,\n     and filter values from PASSED queries are confirmed to exist in the database — use them exactly\n     as they appeared. Queries that FAILED with \"no such column: X\" confirm that X does not exist.\n  2. The analyst may have queried the wrong table or missed a relevant one. Consider all tables\n     the analyst touched, but also re-read the schema to check if a better path exists.\n  3. Write 5 candidates. Each candidate is your best complete answer under a different\n     interpretation of what the question is asking. The interpretations should differ in\n     meaningful ways: which tables to query, which columns to SELECT, which filters to apply,\n     how to aggregate, or what the question fundamentally means.\n\n       C1 — your primary interpretation: the answer you think is most likely correct based on\n             the question text, evidence, and analyst findings. This should be a complete,\n             production-quality query.\n       C2 — second interpretation: a structurally different reading. Perhaps a different table,\n             a different join path, or a different understanding of which column answers the\n             question (e.g., returning an ID instead of a name, or COUNT instead of a list).\n       C3 — third interpretation: another distinct reading. Could differ in aggregation logic,\n             filter scope, or SELECT shape (e.g., including the metric alongside the result).\n       C4 — fourth interpretation: explores a less obvious reading. Different grouping, an\n             additional condition implied by context, or a different column that could answer\n             the same question.\n       C5 — fifth interpretation, most elaborate: if the question could require comparing a\n             value to an aggregate (average, threshold, rank), use Nested Isolation here:\n               Inner query: compute the aggregate (AVG, MAX, COUNT, etc.)\n               Outer query: filter or join against that aggregate result\n             Pattern: SELECT col FROM t WHERE val > (SELECT AVG(val) FROM t)\n             If no aggregate comparison applies, use the most structurally different approach\n             you can justify.\n\n     Each candidate must be a complete, standalone, executable query — not a fragment or\n     simplification. Five variations of the same WHERE clause with minor tweaks is not five\n     interpretations.\n  4. Each candidate must be a complete, standalone, executable SQL query.\n  5. Different interpretations may reasonably differ in SELECT shape. For example, one\n     interpretation might return only COUNT(*), another might return COUNT(*) with the GROUP BY\n     column, and another might return the actual rows. Let each interpretation dictate its own\n     SELECT — do not artificially restrict columns across all five candidates.\n  6. Use LIMIT only when the question asks for a specific number of results (\"top 3\", \"the one\n     with the highest\"). If the question asks for a list without a count, do not use LIMIT.\n  7. You may use window functions (RANK, ROW_NUMBER, etc.) when the question requires ranking\n     within a group or ordering within a partition.\n\n  Proof-by-Cases principle:\n    C1-C5 must represent genuinely different interpretations of the question. If the correct\n    answer exists, at least one interpretation MUST capture it. Each must be structurally\n    distinct — different tables, joins, groupings, SELECT columns, or filter logic.\n\n  Exclusion Principle:\n    Every element in your SQL must be justified by either:\n      (a) the question text explicitly requiring it, or\n      (b) a PASSED query from the analyst's work confirming it exists and is relevant.\n    Do not add columns \"for context\", filters \"for safety\" (IS NOT NULL, status checks),\n    or joins \"just in case\". Unjustified additions are unproven conjectures — they narrow\n    or widen the result set beyond what was asked and cause failures.\n\n  Evidence hierarchy:\n    - PASSED queries with non-zero rows: proven facts. Use the exact column names, table\n      names, and values as they appeared.\n    - FAILED queries (errors): proven non-existence. The column or table does NOT exist\n      in that form. Do not use it.\n    - Zero-row PASSED queries: the filter combination is valid syntax but matches nothing.\n      Consider whether the filter is too restrictive.\n    - [OPEN-VALUE] / [WRONG-TABLE] tags from the analyst: unresolved conjectures. Prefer\n      alternatives that were actually confirmed.\n\nSQLite rules — non-negotiable:\n  - Column names with spaces or special characters MUST be double-quoted: \"Order Date\"\n  - Every query must begin with SELECT. Never use WITH ... AS (CTEs).\n  - Use whatever SQL structure best serves each interpretation: subqueries, window functions,\n    derived tables, or flat SELECT/JOIN/GROUP BY. The only constraint is correctness.\n  - Any query that joins two or more tables MUST assign a short alias to every table\n    (e.g. FROM movies m JOIN ratings r ON m.movie_id = r.movie_id) and MUST qualify every\n    column reference with its alias (e.g. m.movie_title, not just movie_title). Unqualified\n    column references in multi-table queries are ambiguous and will cause runtime errors.\n\nOutput format:\n## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: [what this reading assumes about the question]\nSELECT t1.col FROM t1 JOIN t2 ON t1.id = t2.fk WHERE t1.filter = value\n\n2. -- Second interpretation: [how this differs from C1]\nSELECT t1.id FROM t1 WHERE t1.different_filter = value\n\n3. -- Third interpretation: [what this captures that C1-C2 miss]\nSELECT t1.col, COUNT(*) FROM t1 GROUP BY t1.col\n\n4. -- Fourth interpretation: [alternative approach]\nSELECT t1.col FROM t1 JOIN t3 ON t1.id = t3.fk WHERE t3.filter = value\n\n5. -- Fifth interpretation: [most elaborate or aggregate-comparison approach]\nSELECT t1.col FROM t1 WHERE t1.val > (SELECT AVG(t2.val) FROM t1 t2)\n\nFormat rules:\n  - Numbered 1 through 5 exactly.\n  - Candidate 1 MUST start with \"1. --\" on its own line — never output the first candidate\n    as raw unnumbered SQL.\n  - Comment on same line as the number, starting with --.\n  - SQL starts on the next line, beginning with SELECT.\n  - Blank line between candidates.\n  - No markdown code fences. No bold. No extra headers.\n",
+   "user_prompt": "Question: Which superhero has the most durability published by Dark Horse Comics?\n\nDatabase: superhero\n\n---\nANALYST WORK PRODUCT\n\nStage 1 — What was checked and what was found:\n1. Checked: EXISTENCE LEMMA: Confirm that 'Dark Horse Comics' exists in the publisher table.\n   Result: publisher_name: \n   (20 rows total)\n\n2. Checked: EXISTENCE LEMMA: Confirm that 'durability' exists as a named attribute.\n   Result: attribute_name: Intelligence\n   (6 rows total)\n\n3. Checked: CONNECTIVITY LEMMA: Verify join key overlap between publisher and superhero (left side).\n   Result: id: 1\n   (5 rows total)\n\n4. Checked: CONNECTIVITY LEMMA: Verify join key overlap between publisher and superhero (right side).\n   Result: publisher_id: 13\n   (5 rows total)\n\n5. Checked: CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_attribute (left side).\n   Result: id: 1\n   (5 rows total)\n\n6. Checked: CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_attribute (right side).\n   Result: hero_id: 1\n   (5 rows total)\n\n7. Checked: CONNECTIVITY LEMMA: Verify join key overlap between hero_attribute and attribute (left side).\n   Result: attribute_id: 1\n   (5 rows total)\n\n8. Checked: CONNECTIVITY LEMMA: Verify join key overlap between hero_attribute and attribute (right side).\n   Result: id: 1\n   (5 rows total)\n\n9. Checked: COLUMN SUITABILITY PROOF: Check for nulls in the durability value column to ensure it can be aggregated.\n   Result: nulls: 0 | total: 3738\n\n10. Checked: AXIOMATIC NEUTRALITY: Establish an unfiltered baseline of all superheroes.\n   Result: COUNT(*): 750\n\n11. Checked: SCOPE PROOF: Verify the number of superheroes published by Dark Horse Comics to ensure the filter is not a no-op or empty.\n   Result: ERROR — no such column: publisher.name\n\n12. Checked: SCOPE PROOF: Establish an unfiltered baseline of all hero attributes.\n   Result: COUNT(*): 3738\n\n13. Checked: SCOPE PROOF: Verify the number of records associated with the durability attribute to ensure data exists for this metric.\n   Result: COUNT(*): 0\n\n14. Checked: IDENTIFIER PRECISION: Examine superhero names to determine if they are the primary descriptive labels.\n   Result: superhero_name: 3-D Man\n   (20 rows total)\n\n15. Checked: IDENTIFIER PRECISION: Examine full names to compare against superhero names for output selection.\n   Result: full_name: Charles Chandler\n   (20 rows total)\n\n\nStage 2 — Hypothesis verdict (Phase 4):\n1. Assumption: There is an entry in the attribute table with the exact string 'durability'. [CONTRADICTED] — Query 13 returned zero rows, proving that the exact lowercase string 'durability' is not used as a filter value.\n2. Assumption: The publisher_name column contains the exact value 'Dark Horse Comics'. [CONFIRMED] — Query 1 explicitly lists 'Dark Horse Comics' in the results.\n3. Assumption: The client wants the descriptive label superhero_name rather than the full_name. [CONFIRMED] — Queries 14 and 15 show that superhero_name provides the alias (e.g., 'A-Bomb') while full_name provides the legal name, making superhero_name the standard for \"Which superhero\".\n4. Assumption: Higher integer values in the attribute_value column represent greater durability. [REVISED] — While Query 9 confirms that attribute_value is a populated integer column, this logic can only be applied once the correct attribute name is identified, as 'durability' does not exist.\n5. Assumption: There are no multiple variations of \"Dark Horse Comics\" in the publisher table. [LIKE-VS-ENUM] — Query 1 showed one instance, but did not perform a wildcard search to rule out variations like \"Dark Horse Comics Intl\".\n\nStage 2 — Winning hypothesis (Phase 4b):\nNO, the original hypothesis needs to change. The query results revealed that the attribute name 'durability' does not exist in the database (Query 13), and there are only six total attributes available (Query 2). I must identify which of these six attributes represents \"durability\" before a final query can be written.\n\nMy updated hypothesis is to join the publisher table, superhero table, hero_attribute table, and attribute table. I will filter by `publisher_name = 'Dark Horse Comics'` and use the corrected attribute name (to be identified in Phase 5) that corresponds to durability. I will then order the results by `attribute_value` in descending order to find the superhero with the maximum value.\n\nThe join path is: publisher.id -> superhero.publisher_id -> superhero.id -> hero_attribute.hero_id -> hero_attribute.attribute_id -> attribute.id.\n\nStage 2 — Confirmation checks and what was found:\n1. Checked: RESOLVE [CONTRADICTED]: List all available attributes to find the correct string for durability.\n   Result: attribute_name: Intelligence\n   (6 rows total)\n\n2. Checked: RESOLVE [LIKE-VS-ENUM]: Check for any variations of Dark Horse Comics in the publisher table.\n   Result: publisher_name: Dark Horse Comics\n\n3. Checked: RESOLVE [CONTRADICTED]: Specifically check if 'Durability' (capitalized) exists as an attribute.\n   Result: attribute_name: Durability\n\n4. Checked: RESOLVE [CONTRADICTED]: Check for attributes that might be synonyms for durability, such as Toughness.\n   Result: (no rows returned)\n\n5. Checked: RESOLVE [CONTRADICTED]: Check for attributes that might be synonyms for durability, such as Endurance.\n   Result: (no rows returned)\n\n6. Checked: RESOLVE [CONTRADICTED]: Check for attributes that might be synonyms for durability, such as Stamina.\n   Result: (no rows returned)\n\n7. Checked: EXPLORATORY: Identify which attributes are actually assigned to superheroes from Dark Horse Comics.\n   Result: attribute_name: Intelligence\n   (6 rows total)\n\n8. Checked: DATA DISTRIBUTION: Check the range of values for all attributes to see which one behaves like a durability score.\n   Result: attribute_name: Combat | MIN(ha.attribute_value): 5 | MAX(ha.attribute_value): 100\n   (6 rows total)\n\n9. Checked: RESOLVE [LIKE-VS-ENUM]: Verify if there is a publisher_code or similar enum column in the publisher table.\n   Result: id: 1 | publisher_name: \n   (5 rows total)\n\n10. Checked: CONNECTIVITY: Ensure that superheroes from Dark Horse Comics actually have entries in the hero_attribute table.\n   Result: COUNT(*): 102\n\n11. Checked: IDENTIFIER PRECISION: Check if any superheroes have multiple entries for the same attribute.\n   Result: (no rows returned)\n\n12. Checked: SCOPE PROOF: Check for any attributes that might be named 'durability' but contain leading/trailing spaces.\n   Result: attribute_name: Durability\n\n13. Checked: DATA INTEGRITY: Verify if there are superheroes with no publisher assigned.\n   Result: COUNT(*): 3\n\n14. Checked: DATA INTEGRITY: Verify if there are attributes with no associated heroes.\n   Result: COUNT(*): 0\n\n15. Checked: RESOLVE [CONTRADICTED]: Check for any case-insensitive match for durability in the attribute table.\n   Result: attribute_name: Durability\n\n\n---\nWrite 5 candidate SQL queries sweeping from the least to the most work required to answer the question.",
+   "response": "## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: Find the superhero name with the highest durability value for the specific publisher 'Dark Horse Comics'.\nSELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' AND a.attribute_name = 'Durability'\nORDER BY ha.attribute_value DESC\nLIMIT 1\n\n2. -- Second interpretation: The question \"Which superhero\" may refer to the legal identity (full_name) rather than the alias (superhero_name).\nSELECT s.full_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' AND a.attribute_name = 'Durability'\nORDER BY ha.attribute_value DESC\nLIMIT 1\n\n3. -- Third interpretation: Return both the superhero name and their durability score to provide the evidence for \"the most\".\nSELECT s.superhero_name, ha.attribute_value\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' AND a.attribute_name = 'Durability'\nORDER BY ha.attribute_value DESC\nLIMIT 1\n\n4. -- Fourth interpretation: Use a wildcard search for the publisher name to capture variations (e.g., \"Dark Horse Comics Intl\") as suggested by analyst concerns.\nSELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name LIKE '%Dark Horse Comics%' AND a.attribute_name = 'Durability'\nORDER BY ha.attribute_value DESC\nLIMIT 1\n\n5. -- Fifth interpretation: Use Nested Isolation to identify all superheroes who tie for the maximum durability value within Dark Horse Comics.\nSELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' \nAND a.attribute_name = 'Durability' \nAND ha.attribute_value = (\n    SELECT MAX(ha2.attribute_value)\n    FROM hero_attribute ha2\n    JOIN superhero s2 ON ha2.hero_id = s2.id\n    JOIN publisher p2 ON s2.publisher_id = p2.id\n    JOIN attribute a2 ON ha2.attribute_id = a2.id\n    WHERE p2.publisher_name = 'Dark Horse Comics' AND a2.attribute_name = 'Durability'\n)",
+   "candidates": [
+    {
+     "n": 1,
+     "comment": "Primary interpretation: Find the superhero name with the highest durability value for the specific publisher 'Dark Horse Comics'.",
+     "sql": "SELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' AND a.attribute_name = 'Durability'\nORDER BY ha.attribute_value DESC\nLIMIT 1",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "rows": [
+      [
+       "Dash"
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 2,
+     "comment": "Second interpretation: The question \"Which superhero\" may refer to the legal identity (full_name) rather than the alias (superhero_name).",
+     "sql": "SELECT s.full_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' AND a.attribute_name = 'Durability'\nORDER BY ha.attribute_value DESC\nLIMIT 1",
+     "status": "success",
+     "columns": [
+      "full_name"
+     ],
+     "rows": [
+      [
+       "Dashiell Robert Parr"
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 3,
+     "comment": "Third interpretation: Return both the superhero name and their durability score to provide the evidence for \"the most\".",
+     "sql": "SELECT s.superhero_name, ha.attribute_value\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' AND a.attribute_name = 'Durability'\nORDER BY ha.attribute_value DESC\nLIMIT 1",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "attribute_value"
+     ],
+     "rows": [
+      [
+       "Dash",
+       95
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 4,
+     "comment": "Fourth interpretation: Use a wildcard search for the publisher name to capture variations (e.g., \"Dark Horse Comics Intl\") as suggested by analyst concerns.",
+     "sql": "SELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name LIKE '%Dark Horse Comics%' AND a.attribute_name = 'Durability'\nORDER BY ha.attribute_value DESC\nLIMIT 1",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "rows": [
+      [
+       "Dash"
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 5,
+     "comment": "Fifth interpretation: Use Nested Isolation to identify all superheroes who tie for the maximum durability value within Dark Horse Comics.",
+     "sql": "SELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_attribute ha ON s.id = ha.hero_id\nJOIN attribute a ON ha.attribute_id = a.id\nWHERE p.publisher_name = 'Dark Horse Comics' \nAND a.attribute_name = 'Durability' \nAND ha.attribute_value = (\n    SELECT MAX(ha2.attribute_value)\n    FROM hero_attribute ha2\n    JOIN superhero s2 ON ha2.hero_id = s2.id\n    JOIN publisher p2 ON s2.publisher_id = p2.id\n    JOIN attribute a2 ON ha2.attribute_id = a2.id\n    WHERE p2.publisher_name = 'Dark Horse Comics' AND a2.attribute_name = 'Durability'\n)",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "rows": [
+      [
+       "Dash"
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    }
+   ],
+   "chosen": 1,
+   "gold_result": {
+    "columns": [
+     "superhero_name"
+    ],
+    "rows": [
+     [
+      "Dash"
+     ]
+    ],
+    "row_count": 1
+   }
+  }
+ },
+ "noev_elapsed_s": 479.7,
+ "noev_error": null
+}

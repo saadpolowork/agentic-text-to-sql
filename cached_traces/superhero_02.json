@@ -1,0 +1,3578 @@
+{
+ "db_id": "superhero",
+ "question": "List the superheroes from Marvel Comics who have the super power of 'Super Strength'.",
+ "evidence": "the superheroes from Marvel Comics refers to publisher_name = 'Marvel Comics'; super power of \"Super Strength\" refers to power_name = 'Super Strength';",
+ "gold_sql": "SELECT superhero_name FROM superhero AS T1 WHERE EXISTS (SELECT 1 FROM hero_power AS T2 INNER JOIN superpower AS T3 ON T2.power_id = T3.id WHERE T3.power_name = 'Super Strength' AND T1.id = T2.hero_id)AND EXISTS (SELECT 1 FROM publisher AS T4 WHERE T4.publisher_name = 'Marvel Comics' AND T1.publisher_id = T4.id)",
+ "models": {
+  "stage1": "google/gemma-4-31b",
+  "stage2": "google/gemma-4-31b",
+  "stage3": "google/gemma-4-31b"
+ },
+ "stages": {
+  "stage1": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Today is your first day at a new company.\n\nNormally this work takes three days. You do not have three days. You have to do it all today.\n\nHere is how you think through a new client question:\n\nPHASE 1 — Before you look at anything:\nYou read the question and evidence first, with the schema face-down. You write out every question\nyou would want answered and every assumption you are making. You are a philosopher — you think in\nwho, what, when, where, by whom, for whom. You think in counter-proofs. What would make an\nassumption wrong? What encoding or edge case breaks the obvious reading? Stating a wrong assumption\nexplicitly is more honest and useful than a vague non-answer.\n\nPHASE 2 — You look at the schema:\nThe data dictionary arrives: table names, column names, types, primary keys, and foreign key\nrelationships. You do NOT get statistics — no min, max, null counts, or sample values. That is\nwhat Phase 3 is for. Some of your Phase 1 assumptions will be confirmed. Some will be wrong. Some\nnew questions will appear that you could not have thought of without seeing the actual column names.\nYou update every assumption. You tag each question.\n\nPHASE 3 — You write exploratory SQL:\nYou have database access. You are excited and thorough. You know that being new means you earn trust\nby being rigorous, not reckless. You have two phases of thinking behind you — now you turn that into\nexploratory SQL. Write at least 15 queries. The system will reject outputs with fewer than 5 —\nthose records will be skipped entirely and the question will not advance to the next stage.\n\nYou have six proof obligations:\n\n1. EXISTENCE LEMMA (DISTINCT probes):\n   For every categorical column you plan to filter on, run SELECT DISTINCT col FROM table LIMIT 20.\n   This is a direct proof of existence — it proves which values actually live in the database.\n   Without this proof, any filter using that column is an ungrounded conjecture. The system will\n   treat unproven filter values as errors in Stage 2.\n\n2. CONNECTIVITY LEMMA (join verification):\n   Before writing any multi-table JOIN, prove the join path works. Run a query on each side of the\n   join key: SELECT DISTINCT join_col FROM table_a LIMIT 5 and SELECT DISTINCT join_col FROM table_b\n   LIMIT 5. If both return values and they overlap, the join is proven. If either returns zero rows\n   or different types, the join is disproven — do not use it.\n\n3. AXIOMATIC NEUTRALITY (contrapositive for filters):\n   Do not add status, active/inactive, or any other filter unless the question explicitly mentions\n   it. Assume the contrapositive: if the question does not mention a constraint, its absence is\n   correct until you prove otherwise. Run at least one query WITHOUT any assumed filter to establish\n   the unfiltered baseline.\n\n4. COLUMN SUITABILITY PROOFS (null-count & scope):\n   Before using any column for aggregation (COUNT, AVG, SUM, MAX, MIN), run a null-count query:\n   SELECT COUNT(*) - COUNT(col) as nulls, COUNT(*) as total FROM table.\n   If nulls exceed 50% of total, that column is statistically unsuitable as a primary metric —\n   look for alternatives. After identifying your primary filter value, run TWO scope queries:\n   (a) one query WITHOUT the filter — note the total row count (unfiltered universe).\n   (b) one query WITH the filter — note the filtered row count.\n   Compare: if filtered count equals unfiltered count, the filter is a no-op and likely wrong.\n   If filtered count is zero, the value does not exist. Both indicate a scope mismatch.\n\n5. ANNOTATION LEMMA (semantic mapping of opaque columns):\n   If the schema contains column names that are short codes, single letters, abbreviations, or\n   numeric identifiers (e.g., col1, X, stat, code_a), you cannot assume their meaning from the\n   name alone. For every such opaque column that could be relevant to the question, run:\n   SELECT DISTINCT col FROM table LIMIT 20\n   Then annotate each with its apparent meaning based on the values returned. Format your comment:\n   \"ANNOTATION LEMMA: col_name appears to be [description] (values: val1, val2, val3)\"\n   This is a direct proof of semantic identity — without it, any use of an opaque column is an\n   ungrounded assumption about what the column contains.\n\n6. JOIN VERIFICATION (non-key joins):\n   The schema marks primary keys [PK] and foreign keys [FK]. If you plan to join two tables on\n   a column that is NOT marked as a PK or FK, you must prove the join is valid by querying both\n   sides: SELECT DISTINCT col FROM table_a LIMIT 5 and SELECT DISTINCT col FROM table_b LIMIT 5.\n   If the values do not overlap, the join is invalid. PK/FK joins are pre-verified by the schema.\n\nAdditional rules:\n- Multi-part question decomposition: Before writing any Phase 1 assumptions, read the\n  question and ask: does it contain multiple distinct sub-questions? A multi-part question\n  typically uses connectors like \"and\", \"also\", \"as well as\", or asks for two different\n  pieces of information in one sentence (e.g. \"What is X? What is Y for Z?\"). If yes,\n  list each sub-question separately in Phase 1 and treat them as independent proof obligations.\n  Your Phase 3 queries must cover every part — a query that only answers one part of a\n  multi-part question is incomplete. The final SQL must return all parts in a single query\n  (using JOIN, subquery, or multiple SELECT expressions as appropriate).\n- Cover all tables that could relate to the question, not just the most obvious one.\n- SELECT only the columns needed for each specific check — no extra \"context\" columns.\n- Identifier Precision: Determine whether the question asks for a primary identifier\n  (ID, code, number) or a descriptive label (name, title, description). If both columns exist\n  side by side in the same table, run a DISTINCT query on each. Your Phase 1 assumptions must\n  explicitly state which column type the question wants. This prevents the Director from\n  guessing at the SELECT column later.\n- Each query has exactly one SQL comment (-- ...) that is a single complete sentence explaining\n  why this specific piece of information matters for answering the client question.\n- Always use LIMIT. Check both heads and tails for any table you are uncertain about.\n- Do NOT write the final answer query — that comes after you see what these return.\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\nA numbered list. For each item: state the question, then immediately state your current assumption.\nAssumptions can be wrong — that is expected and useful.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, explaining why these are the\nright questions to ask.\n\n## PHASE 2 — SCHEMA REVIEW\nA numbered list. For each item from Phase 1, mark it with exactly one tag:\n  [CONFIRMED] — the profile supports your Phase 1 assumption\n  [REVISED]   — you need to update your assumption based on what you see\n  [NEW]       — a question that did not exist in Phase 1, raised by the schema or statistics\n  [DROPPED]   — this question is no longer relevant given what the profile shows\n\nAfter the tag, give a brief one-sentence reason.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, describing what the profile\nrevealed and what still requires direct database investigation.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\nA numbered list of SQL queries. Minimum 15 queries.\n\nSQLite rules — this is non-negotiable:\n- The database engine is SQLite. Write only SQL that SQLite supports.\n- Column names that contain spaces, parentheses, or special characters MUST be\n  wrapped in double quotes. Example: \"County Name\", \"Free Meal Count (K-12)\".\n  Never write an unquoted column name that contains a space.\n- Do not use window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.).\n- Always use LIMIT.\n- Do NOT write the final answer query.\n\nOutput format for Phase 3 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the department_type column.\n   SELECT DISTINCT department_type FROM departments LIMIT 20;\n\n2. -- SCOPE CHECK: Establish the time range covered by the data.\n   SELECT MIN(hire_date), MAX(hire_date) FROM employees LIMIT 1;\n\n3. -- NULL-COUNT PROOF: Verify salary column suitability for aggregation.\n   SELECT COUNT(*) - COUNT(salary) as nulls, COUNT(*) as total FROM employees LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between employees and departments.\n   SELECT DISTINCT department_id FROM employees LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Other side of the join.\n   SELECT DISTINCT id FROM departments LIMIT 5;\n\n6. -- ANNOTATION LEMMA: Determine what opaque column 'dept_code' actually contains.\n   SELECT DISTINCT dept_code FROM departments LIMIT 20;\n\n7. -- JOIN VERIFICATION: Verify non-key join between employees.role and roles.role_name.\n   SELECT DISTINCT role FROM employees LIMIT 5;\n\n8. -- SCOPE PROOF: Unfiltered universe count for the target table.\n   SELECT COUNT(*) FROM employees LIMIT 1;\n\n9. -- SCOPE PROOF: Filtered count — verify filter narrows to expected scope.\n   SELECT COUNT(*) FROM employees WHERE department_type = 'Engineering' LIMIT 1;",
+   "user_prompt": "A new client question just arrived on your desk.\n\nQuestion: List the superheroes from Marvel Comics who have the super power of 'Super Strength'.\nEvidence: the superheroes from Marvel Comics refers to publisher_name = 'Marvel Comics'; super power of \"Super Strength\" refers to power_name = 'Super Strength';\n\nDatabase: superhero\n\nSchema (table names, column names, types, primary keys, foreign keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nWork through all three phases now.",
+   "response": "## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\n\n1. Does the client want the superhero's alias or their real name? Assumption: The client wants the descriptive label `superhero_name`.\n2. Is the publisher name stored exactly as 'Marvel Comics'? Assumption: It is stored exactly as provided in the evidence.\n3. Is the power name stored exactly as 'Super Strength'? Assumption: It is stored exactly as provided in the evidence.\n4. Are there any status filters (e.g., active/inactive) that should be applied? Assumption: No such filter exists or is required unless specified.\n5. Does a superhero's \"power\" reside only in the `superpower` table, or could it be an `attribute`? Assumption: The evidence explicitly points to `power_name`, so I will focus on the `superpower` table.\n\nREASONING:\nThe request requires filtering by two different entities linked to a central superhero record.\nI must determine if the user prefers the alias or the legal name of the character.\nExact string matching for 'Marvel Comics' and 'Super Strength' is assumed but needs verification.\nI need to ensure that no hidden constraints like \"active status\" are missing from the request.\nChecking both powers and attributes ensures I do not miss data stored in a parallel structure.\n\n## PHASE 2 — SCHEMA REVIEW\n\n1. [CONFIRMED] The `superhero` table contains both `superhero_name` and `full_name`, supporting the need to choose one.\n2. [CONFIRMED] The `publisher` table has a `publisher_name` column for filtering 'Marvel Comics'.\n3. [CONFIRMED] The `superpower` table has a `power_name` column for filtering 'Super Strength'.\n4. [CONFIRMED] No status or active/inactive columns are present in the `superhero` or `publisher` tables.\n5. [REVISED] While `attribute` exists, the evidence specifically mentions `power_name`, which is a column in `superpower`.\n\nREASONING:\nThe schema confirms a many-to-many relationship between superheroes and powers via `hero_power`.\nIt also confirms a many-to-one relationship between superheroes and publishers.\nAll necessary columns for the filters mentioned in the evidence are present.\nI have identified that I must join four tables to connect publisher names to power names.\nDirect database probes are now required to verify the exact string values and join integrity.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\n\n1. -- EXISTENCE PROOF: Confirm if 'Marvel Comics' exists exactly as written in the publisher table.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name = 'Marvel Comics' LIMIT 20;\n\n2. -- EXISTENCE PROOF: Confirm if 'Super Strength' exists exactly as written in the superpower table.\n   SELECT DISTINCT power_name FROM superpower WHERE power_name = 'Super Strength' LIMIT 20;\n\n3. -- IDENTIFIER PRECISION: Check a sample of superhero names to determine the format of the alias.\n   SELECT DISTINCT superhero_name FROM superhero LIMIT 20;\n\n4. -- IDENTIFIER PRECISION: Check a sample of full names to compare against the alias.\n   SELECT DISTINCT full_name FROM superhero LIMIT 20;\n\n5. -- CONNECTIVITY LEMMA: Verify the join key on the superhero side for publishers.\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5;\n\n6. -- CONNECTIVITY LEMMA: Verify the join key on the publisher side.\n   SELECT DISTINCT id FROM publisher LIMIT 5;\n\n7. -- CONNECTIVITY LEMMA: Verify the join key between superheroes and their powers.\n   SELECT DISTINCT hero_id FROM hero_power LIMIT 5;\n\n8. -- CONNECTIVITY LEMMA: Verify the superhero ID exists in the main table.\n   SELECT DISTINCT id FROM superhero LIMIT 5;\n\n9. -- CONNECTIVITY LEMMA: Verify the power ID link from the mapping table.\n   SELECT DISTINCT power_id FROM hero_power LIMIT 5;\n\n10. -- CONNECTIVITY LEMMA: Verify the power ID exists in the superpower table.\n    SELECT DISTINCT id FROM superpower LIMIT 5;\n\n11. -- COLUMN SUITABILITY PROOF: Check for nulls in superhero_name to ensure it is a reliable identifier.\n    SELECT COUNT(*) - COUNT(superhero_name) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n12. -- COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to see if any heroes are unassigned.\n    SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n13. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\n    SELECT COUNT(*) FROM superhero LIMIT 1;\n\n14. -- SCOPE PROOF: Verify how many superheroes belong to 'Marvel Comics'.\n    SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'Marvel Comics' LIMIT 1;\n\n15. -- SCOPE PROOF: Verify how many superheroes possess the power of 'Super Strength'.\n    SELECT COUNT(*) FROM superhero JOIN hero_power ON superhero.id = hero_power.hero_id JOIN superpower ON hero_power.power_id = superpower.id WHERE superpower.power_name = 'Super Strength' LIMIT 1;\n\n16. -- ANNOTATION LEMMA: Check if the attribute table contains any strength-related values that might overlap with powers.\n    SELECT DISTINCT attribute_name FROM attribute LIMIT 20;\n\n17. -- COLUMN SUITABILITY PROOF: Verify null counts for power_name in the superpower table.\n    SELECT COUNT(*) - COUNT(power_name) as nulls, COUNT(*) as total FROM superpower LIMIT 1;",
+   "phase1": "1. Does the client want the superhero's alias or their real name? Assumption: The client wants the descriptive label `superhero_name`.\n2. Is the publisher name stored exactly as 'Marvel Comics'? Assumption: It is stored exactly as provided in the evidence.\n3. Is the power name stored exactly as 'Super Strength'? Assumption: It is stored exactly as provided in the evidence.\n4. Are there any status filters (e.g., active/inactive) that should be applied? Assumption: No such filter exists or is required unless specified.\n5. Does a superhero's \"power\" reside only in the `superpower` table, or could it be an `attribute`? Assumption: The evidence explicitly points to `power_name`, so I will focus on the `superpower` table.\n\nREASONING:\nThe request requires filtering by two different entities linked to a central superhero record.\nI must determine if the user prefers the alias or the legal name of the character.\nExact string matching for 'Marvel Comics' and 'Super Strength' is assumed but needs verification.\nI need to ensure that no hidden constraints like \"active status\" are missing from the request.\nChecking both powers and attributes ensures I do not miss data stored in a parallel structure.",
+   "phase2": "1. [CONFIRMED] The `superhero` table contains both `superhero_name` and `full_name`, supporting the need to choose one.\n2. [CONFIRMED] The `publisher` table has a `publisher_name` column for filtering 'Marvel Comics'.\n3. [CONFIRMED] The `superpower` table has a `power_name` column for filtering 'Super Strength'.\n4. [CONFIRMED] No status or active/inactive columns are present in the `superhero` or `publisher` tables.\n5. [REVISED] While `attribute` exists, the evidence specifically mentions `power_name`, which is a column in `superpower`.\n\nREASONING:\nThe schema confirms a many-to-many relationship between superheroes and powers via `hero_power`.\nIt also confirms a many-to-one relationship between superheroes and publishers.\nAll necessary columns for the filters mentioned in the evidence are present.\nI have identified that I must join four tables to connect publisher names to power names.\nDirect database probes are now required to verify the exact string values and join integrity.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "EXISTENCE PROOF: Confirm if 'Marvel Comics' exists exactly as written in the publisher table.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name = 'Marvel Comics' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "EXISTENCE PROOF: Confirm if 'Super Strength' exists exactly as written in the superpower table.",
+     "sql": "SELECT DISTINCT power_name FROM superpower WHERE power_name = 'Super Strength' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "power_name"
+     ],
+     "head": [
+      [
+       "Super Strength"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "IDENTIFIER PRECISION: Check a sample of superhero names to determine the format of the alias.",
+     "sql": "SELECT DISTINCT superhero_name FROM superhero LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "head": [
+      [
+       "3-D Man"
+      ],
+      [
+       "A-Bomb"
+      ],
+      [
+       "Abe Sapien"
+      ],
+      [
+       "Abin Sur"
+      ],
+      [
+       "Abomination"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "IDENTIFIER PRECISION: Check a sample of full names to compare against the alias.",
+     "sql": "SELECT DISTINCT full_name FROM superhero LIMIT 20",
+     "status": "success",
+     "columns": [
+      "full_name"
+     ],
+     "head": [
+      [
+       "Charles Chandler"
+      ],
+      [
+       "Richard Milhouse Jones"
+      ],
+      [
+       "Abraham Sapien"
+      ],
+      [
+       "-"
+      ],
+      [
+       "Emil Blonsky"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "CONNECTIVITY LEMMA: Verify the join key on the superhero side for publishers.",
+     "sql": "SELECT DISTINCT publisher_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "publisher_id"
+     ],
+     "head": [
+      [
+       13
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       15
+      ],
+      [
+       25
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "CONNECTIVITY LEMMA: Verify the join key on the publisher side.",
+     "sql": "SELECT DISTINCT id FROM publisher LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "CONNECTIVITY LEMMA: Verify the join key between superheroes and their powers.",
+     "sql": "SELECT DISTINCT hero_id FROM hero_power LIMIT 5",
+     "status": "success",
+     "columns": [
+      "hero_id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "CONNECTIVITY LEMMA: Verify the superhero ID exists in the main table.",
+     "sql": "SELECT DISTINCT id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "CONNECTIVITY LEMMA: Verify the power ID link from the mapping table.",
+     "sql": "SELECT DISTINCT power_id FROM hero_power LIMIT 5",
+     "status": "success",
+     "columns": [
+      "power_id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       18
+      ],
+      [
+       26
+      ],
+      [
+       31
+      ],
+      [
+       2
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "CONNECTIVITY LEMMA: Verify the power ID exists in the superpower table.",
+     "sql": "SELECT DISTINCT id FROM superpower LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in superhero_name to ensure it is a reliable identifier.",
+     "sql": "SELECT COUNT(*) - COUNT(superhero_name) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to see if any heroes are unassigned.",
+     "sql": "SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       3,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.",
+     "sql": "SELECT COUNT(*) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "SCOPE PROOF: Verify how many superheroes belong to 'Marvel Comics'.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'Marvel Comics' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       387
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "SCOPE PROOF: Verify how many superheroes possess the power of 'Super Strength'.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN hero_power ON superhero.id = hero_power.hero_id JOIN superpower ON hero_power.power_id = superpower.id WHERE superpower.power_name = 'Super Strength' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       358
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "16",
+     "comment": "ANNOTATION LEMMA: Check if the attribute table contains any strength-related values that might overlap with powers.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [
+      [
+       "Intelligence"
+      ],
+      [
+       "Strength"
+      ],
+      [
+       "Speed"
+      ],
+      [
+       "Durability"
+      ],
+      [
+       "Power"
+      ]
+     ],
+     "row_count": 6,
+     "error": null
+    },
+    {
+     "n": "17",
+     "comment": "COLUMN SUITABILITY PROOF: Verify null counts for power_name in the superpower table.",
+     "sql": "SELECT COUNT(*) - COUNT(power_name) as nulls, COUNT(*) as total FROM superpower LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       167
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 17,
+   "n_success": 17
+  },
+  "stage2": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Yesterday you worked through a client question in three phases:\nPhase 1 — questions and assumptions written before seeing the schema.\nPhase 2 — schema review, assumptions updated against column profiles.\nPhase 3 — exploratory SQL queries written to investigate the data.\n\nNow the queries have run. You have the results in front of you.\n\nYour job today is three phases:\n\nPHASE 4 — REVISED ASSUMPTIONS\nGo through every assumption you made in Phases 1 and 2. For each one, state what the query results show.\nTag each item with exactly one of:\n  [CONFIRMED]    — a PASSED query directly proves this assumption. Cite the query number.\n  [REVISED]      — results partially support but require adjustment. State what changed and why.\n  [CONTRADICTED] — a query returned zero rows, an error, or unexpected data that disproves this\n                   hypothesis. This is not a failure — it is a proof by contradiction. State clearly\n                   what was disproven and what it implies.\n  [OPEN-VALUE]   — an assumption involves a string filter value that was NEVER confirmed with a\n                   SELECT DISTINCT query. This is an open conjecture — the Director cannot use it.\n                   Phase 5 MUST include a DISTINCT query to resolve it.\n  [WRONG-TABLE]  — query results suggest the data does not live in the assumed table (column doesn't\n                   exist, zero rows where many were expected, data type mismatch). The hypothesis\n                   about which table to use is disproven. Phase 5 must explore the alternative.\n  [LIKE-VS-ENUM] — the analyst used LIKE or a substring match on a name/description column, but\n                   the schema may contain a separate coded or enum column for the same concept\n                   (e.g., filtering by name string when a type_code column exists). Phase 5 MUST\n                   include a DISTINCT query on the potential enum column to check if it provides\n                   a cleaner, exact-match filter.\n\nAfter the tag, write one sentence citing which query result led to this conclusion.\n\nContrapositive test for filters: For each filter in your hypothesis, apply the contrapositive test:\n\"If the question does not explicitly mention this constraint, then it should NOT appear in the WHERE\nclause.\" If Stage 1 added a filter that the question never asked for (e.g. a status filter, an\nactive/inactive check), tag it [CONTRADICTED] with reason: \"contrapositive — question does not\nmention this constraint.\"\n\nPHASE 4b — HYPOTHESIS REVIEW\nWrite a short paragraph (3–5 sentences) answering:\n  1. Does your original hypothesis about how to answer this question still hold?\n     State clearly: YES it holds, NO it needs to change, or PARTIALLY — explain what changed.\n  2. Did the query results reveal anything you did not expect? If so, what?\n  3. What is your updated hypothesis for the final SQL approach?\n\nYour updated hypothesis must name:\n  - The exact table name(s) as they appear in the schema\n  - The exact column name(s) — quoted if they contain spaces\n  - The exact confirmed string value (if a filter is needed) — proven by a DISTINCT query\n  - The exact join path (if tables must be joined) — proven by connectivity lemma queries\n  Vague hypotheses like \"filter by type\" or \"join on the ID column\" are rejected.\n  If any piece is uncertain, tag it [OPEN-VALUE] and resolve it in Phase 5.\n\nPHASE 5 — CONFIRMATION QUERIES\nWrite at least 15 new SQL queries. The system will reject outputs with fewer than 5 — those records\nwill be skipped entirely. These are not exploratory — they are targeted at the gaps, surprises, and\nrevised assumptions from Phases 4 and 4b.\n\nMandatory resolution: Every [OPEN-VALUE] and [WRONG-TABLE] from Phase 4 MUST have a corresponding\nresolution query in Phase 5. An unresolved conjecture is a gap that the Director will fill with\nguesswork — and guesswork is how we get wrong answers.\n  - For [OPEN-VALUE]: run SELECT DISTINCT col FROM table LIMIT 20 to prove the exact value.\n  - For [WRONG-TABLE]: run exploratory queries against the alternative table.\n  - For [LIKE-VS-ENUM]: run SELECT DISTINCT enum_col FROM table LIMIT 20. If the enum column\n    provides exact values that match the question's intent, recommend it over the LIKE filter\n    in your Phase 4b hypothesis update.\n\nDo not repeat queries from Phase 3. Each query must address something new.\n\nSQLite rules — same as before, non-negotiable:\n- Column names with spaces or special characters MUST be double-quoted: \"County Name\"\n- No window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.)\n- Always use LIMIT\n- Do NOT write the final answer query\n\nOutput format for Phase 5 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- RESOLVE [OPEN-VALUE]: Prove what distinct values exist in order_status.\n   SELECT DISTINCT order_status FROM orders LIMIT 20;\n\n2. -- RESOLVE [WRONG-TABLE]: Check if revenue data lives in invoices instead of orders.\n   SELECT COUNT(*), MIN(total), MAX(total) FROM invoices LIMIT 1;\n\n3. -- CONTRAPOSITIVE TEST: Verify results without the assumed 'active' filter.\n   SELECT COUNT(*) FROM customers LIMIT 1;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check if department_code is a cleaner filter than department_name.\n   SELECT DISTINCT department_code, department_name FROM departments LIMIT 20;\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 4 — REVISED ASSUMPTIONS\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\n## PHASE 5 — CONFIRMATION QUERIES",
+   "user_prompt": "The query results are in. Time to review.\n\nQuestion: List the superheroes from Marvel Comics who have the super power of 'Super Strength'.\nEvidence: the superheroes from Marvel Comics refers to publisher_name = 'Marvel Comics'; super power of \"Super Strength\" refers to power_name = 'Super Strength';\n\nDatabase: superhero\n\nSchema (same as before — table names, column names, types, join keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\n---\n\nYour Phase 1 — Two Semantic Hypotheses:\n\n1. Does the client want the superhero's alias or their real name? Assumption: The client wants the descriptive label `superhero_name`.\n2. Is the publisher name stored exactly as 'Marvel Comics'? Assumption: It is stored exactly as provided in the evidence.\n3. Is the power name stored exactly as 'Super Strength'? Assumption: It is stored exactly as provided in the evidence.\n4. Are there any status filters (e.g., active/inactive) that should be applied? Assumption: No such filter exists or is required unless specified.\n5. Does a superhero's \"power\" reside only in the `superpower` table, or could it be an `attribute`? Assumption: The evidence explicitly points to `power_name`, so I will focus on the `superpower` table.\n\nREASONING:\nThe request requires filtering by two different entities linked to a central superhero record.\nI must determine if the user prefers the alias or the legal name of the character.\nExact string matching for 'Marvel Comics' and 'Super Strength' is assumed but needs verification.\nI need to ensure that no hidden constraints like \"active status\" are missing from the request.\nChecking both powers and attributes ensures I do not miss data stored in a parallel structure.\n\n---\n\nYour Phase 2 — Schema Deep Dive:\n\n1. [CONFIRMED] The `superhero` table contains both `superhero_name` and `full_name`, supporting the need to choose one.\n2. [CONFIRMED] The `publisher` table has a `publisher_name` column for filtering 'Marvel Comics'.\n3. [CONFIRMED] The `superpower` table has a `power_name` column for filtering 'Super Strength'.\n4. [CONFIRMED] No status or active/inactive columns are present in the `superhero` or `publisher` tables.\n5. [REVISED] While `attribute` exists, the evidence specifically mentions `power_name`, which is a column in `superpower`.\n\nREASONING:\nThe schema confirms a many-to-many relationship between superheroes and powers via `hero_power`.\nIt also confirms a many-to-one relationship between superheroes and publishers.\nAll necessary columns for the filters mentioned in the evidence are present.\nI have identified that I must join four tables to connect publisher names to power names.\nDirect database probes are now required to verify the exact string values and join integrity.\n\n---\n\nPhase 3 — Exploratory Query Results:\n\n1. -- EXISTENCE PROOF: Confirm if 'Marvel Comics' exists exactly as written in the publisher table.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name = 'Marvel Comics' LIMIT 20\n   Columns: publisher_name\n   ['Marvel Comics']\n\n2. -- EXISTENCE PROOF: Confirm if 'Super Strength' exists exactly as written in the superpower table.\n   SELECT DISTINCT power_name FROM superpower WHERE power_name = 'Super Strength' LIMIT 20\n   Columns: power_name\n   ['Super Strength']\n\n3. -- IDENTIFIER PRECISION: Check a sample of superhero names to determine the format of the alias.\n   SELECT DISTINCT superhero_name FROM superhero LIMIT 20\n   Columns: superhero_name\n   ['3-D Man']\n   ['A-Bomb']\n   ['Abe Sapien']\n   ... (20 rows total)\n\n4. -- IDENTIFIER PRECISION: Check a sample of full names to compare against the alias.\n   SELECT DISTINCT full_name FROM superhero LIMIT 20\n   Columns: full_name\n   ['Charles Chandler']\n   ['Richard Milhouse Jones']\n   ['Abraham Sapien']\n   ... (20 rows total)\n\n5. -- CONNECTIVITY LEMMA: Verify the join key on the superhero side for publishers.\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5\n   Columns: publisher_id\n   [13]\n   [3]\n   [4]\n   ... (5 rows total)\n\n6. -- CONNECTIVITY LEMMA: Verify the join key on the publisher side.\n   SELECT DISTINCT id FROM publisher LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n7. -- CONNECTIVITY LEMMA: Verify the join key between superheroes and their powers.\n   SELECT DISTINCT hero_id FROM hero_power LIMIT 5\n   Columns: hero_id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n8. -- CONNECTIVITY LEMMA: Verify the superhero ID exists in the main table.\n   SELECT DISTINCT id FROM superhero LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n9. -- CONNECTIVITY LEMMA: Verify the power ID link from the mapping table.\n   SELECT DISTINCT power_id FROM hero_power LIMIT 5\n   Columns: power_id\n   [1]\n   [18]\n   [26]\n   ... (5 rows total)\n\n10. -- CONNECTIVITY LEMMA: Verify the power ID exists in the superpower table.\n   SELECT DISTINCT id FROM superpower LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n11. -- COLUMN SUITABILITY PROOF: Check for nulls in superhero_name to ensure it is a reliable identifier.\n   SELECT COUNT(*) - COUNT(superhero_name) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [0, 750]\n\n12. -- COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to see if any heroes are unassigned.\n   SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [3, 750]\n\n13. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\n   SELECT COUNT(*) FROM superhero LIMIT 1\n   Columns: COUNT(*)\n   [750]\n\n14. -- SCOPE PROOF: Verify how many superheroes belong to 'Marvel Comics'.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'Marvel Comics' LIMIT 1\n   Columns: COUNT(*)\n   [387]\n\n15. -- SCOPE PROOF: Verify how many superheroes possess the power of 'Super Strength'.\n   SELECT COUNT(*) FROM superhero JOIN hero_power ON superhero.id = hero_power.hero_id JOIN superpower ON hero_power.power_id = superpower.id WHERE superpower.power_name = 'Super Strength' LIMIT 1\n   Columns: COUNT(*)\n   [358]\n\n16. -- ANNOTATION LEMMA: Check if the attribute table contains any strength-related values that might overlap with powers.\n   SELECT DISTINCT attribute_name FROM attribute LIMIT 20\n   Columns: attribute_name\n   ['Intelligence']\n   ['Strength']\n   ['Speed']\n   ... (6 rows total)\n\n17. -- COLUMN SUITABILITY PROOF: Verify null counts for power_name in the superpower table.\n   SELECT COUNT(*) - COUNT(power_name) as nulls, COUNT(*) as total FROM superpower LIMIT 1\n   Columns: nulls, total\n   [0, 167]\n\n---\n\nWork through Phase 4 and Phase 5 now.",
+   "response": "## PHASE 4 — REVISED ASSUMPTIONS\n\n1. [CONFIRMED] The client wants the descriptive label `superhero_name` rather than the real name. Query 3 and 4 show both exist, but the request for \"the superheroes\" typically refers to their known aliases.\n2. [CONFIRMED] The publisher name is stored exactly as 'Marvel Comics'. Query 1 proves this exact string exists in the `publisher` table.\n3. [CONFIRMED] The power name is stored exactly as 'Super Strength'. Query 2 proves this exact string exists in the `superpower` table.\n4. [CONFIRMED] No status filters (e.g., active/inactive) are required. Phase 2 schema review and Query 13 confirm no such columns exist to filter by.\n5. [LIKE-VS-ENUM] The request for \"Super Strength\" is handled via the `superpower` table, but a separate `attribute` table exists with a 'Strength' entry. Query 16 reveals that strength may be tracked as a numeric attribute in addition to or instead of a named power.\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\nYES, the original hypothesis holds, but it must be refined to ensure we are not ignoring the `attribute` table. The query results confirm that both 'Marvel Comics' and 'Super Strength' exist as exact strings in their respective tables, and the join paths between superheroes, publishers, and powers are valid. However, the discovery of a 'Strength' attribute suggests that \"super power\" might be interpreted by some as a high value in the `attribute` table rather than a record in the `superpower` table. My updated hypothesis is to stick to the explicit evidence provided ('Super Strength' in `superpower`), but I will perform final checks on the `attribute` table to ensure no critical data is missed.\n\nUpdated Hypothesis:\n- Tables: `superhero`, `publisher`, `superpower`, `hero_power`\n- Columns: `superhero.superhero_name`, `publisher.publisher_name`, `superpower.power_name`\n- Confirmed Values: 'Marvel Comics', 'Super Strength'\n- Join Path: `superhero.publisher_id` -> `publisher.id` AND `superhero.id` -> `hero_power.hero_id` -> `superpower.id`\n\n## PHASE 5 — CONFIRMATION QUERIES\n\n1. -- RESOLVE [LIKE-VS-ENUM]: Check if 'Super Strength' exists as an exact value in the attribute table.\n   SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name = 'Super Strength' LIMIT 20;\n\n2. -- RESOLVE [LIKE-VS-ENUM]: Explore all attributes containing the word 'Strength' to see if they are enums or codes.\n   SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%Strength%' LIMIT 20;\n\n3. -- RESOLVE [LIKE-VS-ENUM]: Check a sample of values for the 'Strength' attribute to see if it is numeric/coded.\n   SELECT attribute_value FROM hero_attribute JOIN attribute ON hero_attribute.attribute_id = attribute.id WHERE attribute.attribute_name = 'Strength' LIMIT 20;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check for any other attributes that might be interpreted as \"Super Strength\".\n   SELECT DISTINCT attribute_name FROM attribute LIMIT 20;\n\n5. -- VALIDATE SCOPE: Ensure no other publishers contain the word 'Marvel' which would split the results.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel%' LIMIT 20;\n\n6. -- VALIDATE SCOPE: Check for variations of 'Super Strength' in the superpower table.\n   SELECT DISTINCT power_name FROM superpower WHERE power_name LIKE '%Strength%' LIMIT 20;\n\n7. -- CONNECTIVITY TEST: Verify that Marvel superheroes actually have entries in the hero_power table.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id JOIN hero_power ON superhero.id = hero_power.hero_id WHERE publisher.publisher_name = 'Marvel Comics' LIMIT 1;\n\n8. -- DATA INTEGRITY: Check for superheroes with the power 'Super Strength' who have no assigned publisher.\n   SELECT COUNT(*) FROM superhero JOIN hero_power ON superhero.id = hero_power.hero_id JOIN superpower ON hero_power.power_id = superpower.id WHERE superpower.power_name = 'Super Strength' AND superhero.publisher_id IS NULL LIMIT 1;\n\n9. -- DATA INTEGRITY: Check for any nulls in the mapping table that could break joins.\n   SELECT COUNT(*) FROM hero_power WHERE hero_id IS NULL OR power_id IS NULL LIMIT 1;\n\n10. -- COLUMN SUITABILITY: Verify if full_name is populated for Marvel heroes with Super Strength.\n    SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id JOIN hero_power ON superhero.id = hero_power.hero_id JOIN superpower ON hero_power.power_id = superpower.id WHERE publisher.publisher_name = 'Marvel Comics' AND superpower.power_name = 'Super Strength' AND superhero.full_name IS NULL LIMIT 1;\n\n11. -- CROSS-REFERENCE: See if any heroes have the power 'Super Strength' but a low value in the 'Strength' attribute.\n    SELECT superhero.superhero_name, hero_attribute.attribute_value FROM superhero JOIN hero_power ON superhero.id = hero_power.hero_id JOIN superpower ON hero_power.power_id = superpower.id JOIN hero_attribute ON superhero.id = hero_attribute.hero_id JOIN attribute ON hero_attribute.attribute_id = attribute.id WHERE superpower.power_name = 'Super Strength' AND attribute.attribute_name = 'Strength' LIMIT 20;\n\n12. -- CROSS-REFERENCE: See if any heroes have a high 'Strength' attribute but NOT the power 'Super Strength'.\n    SELECT superhero.superhero_name FROM superhero JOIN hero_attribute ON superhero.id = hero_attribute.hero_id JOIN attribute ON hero_attribute.attribute_id = attribute.id WHERE attribute.attribute_name = 'Strength' AND hero_attribute.attribute_value > 50 LIMIT 20;\n\n13. -- CONNECTIVITY TEST: Verify the publisher link for a known Marvel character (e.g., Iron Man if present).\n    SELECT publisher_name FROM publisher JOIN superhero ON publisher.id = superhero.publisher_id WHERE superhero.superhero_name LIKE '%Iron Man%' LIMIT 1;\n\n14. -- DATA VOLUME: Check total number of distinct powers to understand the granularity of power_name.\n    SELECT COUNT(DISTINCT power_name) FROM superpower LIMIT 1;\n\n15. -- FINAL FILTER CHECK: Verify that 'Marvel Comics' is indeed the exact string and not 'Marvel Comics ' with a trailing space.\n    SELECT publisher_name, LENGTH(publisher_name) FROM publisher WHERE publisher_name LIKE 'Marvel%' LIMIT 20;",
+   "phase4": "1. [CONFIRMED] The client wants the descriptive label `superhero_name` rather than the real name. Query 3 and 4 show both exist, but the request for \"the superheroes\" typically refers to their known aliases.\n2. [CONFIRMED] The publisher name is stored exactly as 'Marvel Comics'. Query 1 proves this exact string exists in the `publisher` table.\n3. [CONFIRMED] The power name is stored exactly as 'Super Strength'. Query 2 proves this exact string exists in the `superpower` table.\n4. [CONFIRMED] No status filters (e.g., active/inactive) are required. Phase 2 schema review and Query 13 confirm no such columns exist to filter by.\n5. [LIKE-VS-ENUM] The request for \"Super Strength\" is handled via the `superpower` table, but a separate `attribute` table exists with a 'Strength' entry. Query 16 reveals that strength may be tracked as a numeric attribute in addition to or instead of a named power.",
+   "phase4b": "YES, the original hypothesis holds, but it must be refined to ensure we are not ignoring the `attribute` table. The query results confirm that both 'Marvel Comics' and 'Super Strength' exist as exact strings in their respective tables, and the join paths between superheroes, publishers, and powers are valid. However, the discovery of a 'Strength' attribute suggests that \"super power\" might be interpreted by some as a high value in the `attribute` table rather than a record in the `superpower` table. My updated hypothesis is to stick to the explicit evidence provided ('Super Strength' in `superpower`), but I will perform final checks on the `attribute` table to ensure no critical data is missed.\n\nUpdated Hypothesis:\n- Tables: `superhero`, `publisher`, `superpower`, `hero_power`\n- Columns: `superhero.superhero_name`, `publisher.publisher_name`, `superpower.power_name`\n- Confirmed Values: 'Marvel Comics', 'Super Strength'\n- Join Path: `superhero.publisher_id` -> `publisher.id` AND `superhero.id` -> `hero_power.hero_id` -> `superpower.id`",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Check if 'Super Strength' exists as an exact value in the attribute table.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name = 'Super Strength' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Explore all attributes containing the word 'Strength' to see if they are enums or codes.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%Strength%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [
+      [
+       "Strength"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Check a sample of values for the 'Strength' attribute to see if it is numeric/coded.",
+     "sql": "SELECT attribute_value FROM hero_attribute JOIN attribute ON hero_attribute.attribute_id = attribute.id WHERE attribute.attribute_name = 'Strength' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_value"
+     ],
+     "head": [
+      [
+       35
+      ],
+      [
+       100
+      ],
+      [
+       30
+      ],
+      [
+       90
+      ],
+      [
+       80
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Check for any other attributes that might be interpreted as \"Super Strength\".",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [
+      [
+       "Intelligence"
+      ],
+      [
+       "Strength"
+      ],
+      [
+       "Speed"
+      ],
+      [
+       "Durability"
+      ],
+      [
+       "Power"
+      ]
+     ],
+     "row_count": 6,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "VALIDATE SCOPE: Ensure no other publishers contain the word 'Marvel' which would split the results.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "VALIDATE SCOPE: Check for variations of 'Super Strength' in the superpower table.",
+     "sql": "SELECT DISTINCT power_name FROM superpower WHERE power_name LIKE '%Strength%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "power_name"
+     ],
+     "head": [
+      [
+       "Super Strength"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "CONNECTIVITY TEST: Verify that Marvel superheroes actually have entries in the hero_power table.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id JOIN hero_power ON superhero.id = hero_power.hero_id WHERE publisher.publisher_name = 'Marvel Comics' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       2973
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "DATA INTEGRITY: Check for superheroes with the power 'Super Strength' who have no assigned publisher.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN hero_power ON superhero.id = hero_power.hero_id JOIN superpower ON hero_power.power_id = superpower.id WHERE superpower.power_name = 'Super Strength' AND superhero.publisher_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "DATA INTEGRITY: Check for any nulls in the mapping table that could break joins.",
+     "sql": "SELECT COUNT(*) FROM hero_power WHERE hero_id IS NULL OR power_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "COLUMN SUITABILITY: Verify if full_name is populated for Marvel heroes with Super Strength.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id JOIN hero_power ON superhero.id = hero_power.hero_id JOIN superpower ON hero_power.power_id = superpower.id WHERE publisher.publisher_name = 'Marvel Comics' AND superpower.power_name = 'Super Strength' AND superhero.full_name IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       21
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "CROSS-REFERENCE: See if any heroes have the power 'Super Strength' but a low value in the 'Strength' attribute.",
+     "sql": "SELECT superhero.superhero_name, hero_attribute.attribute_value FROM superhero JOIN hero_power ON superhero.id = hero_power.hero_id JOIN superpower ON hero_power.power_id = superpower.id JOIN hero_attribute ON superhero.id = hero_attribute.hero_id JOIN attribute ON hero_attribute.attribute_id = attribute.id WHERE superpower.power_name = 'Super Strength' AND attribute.attribute_name = 'Strength' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "attribute_value"
+     ],
+     "head": [
+      [
+       "3-D Man",
+       35
+      ],
+      [
+       "A-Bomb",
+       100
+      ],
+      [
+       "Abe Sapien",
+       30
+      ],
+      [
+       "Abomination",
+       80
+      ],
+      [
+       "Abraxas",
+       100
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "CROSS-REFERENCE: See if any heroes have a high 'Strength' attribute but NOT the power 'Super Strength'.",
+     "sql": "SELECT superhero.superhero_name FROM superhero JOIN hero_attribute ON superhero.id = hero_attribute.hero_id JOIN attribute ON hero_attribute.attribute_id = attribute.id WHERE attribute.attribute_name = 'Strength' AND hero_attribute.attribute_value > 50 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "head": [
+      [
+       "A-Bomb"
+      ],
+      [
+       "Abin Sur"
+      ],
+      [
+       "Abomination"
+      ],
+      [
+       "Abraxas"
+      ],
+      [
+       "Air-Walker"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "CONNECTIVITY TEST: Verify the publisher link for a known Marvel character (e.g., Iron Man if present).",
+     "sql": "SELECT publisher_name FROM publisher JOIN superhero ON publisher.id = superhero.publisher_id WHERE superhero.superhero_name LIKE '%Iron Man%' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "DATA VOLUME: Check total number of distinct powers to understand the granularity of power_name.",
+     "sql": "SELECT COUNT(DISTINCT power_name) FROM superpower LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(DISTINCT power_name)"
+     ],
+     "head": [
+      [
+       167
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "FINAL FILTER CHECK: Verify that 'Marvel Comics' is indeed the exact string and not 'Marvel Comics ' with a trailing space.",
+     "sql": "SELECT publisher_name, LENGTH(publisher_name) FROM publisher WHERE publisher_name LIKE 'Marvel%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name",
+      "LENGTH(publisher_name)"
+     ],
+     "head": [
+      [
+       "Marvel Comics",
+       13
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage3": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "\nYou are the director. You are reviewing the work of a junior analyst who investigated a client\nquestion by running SQL queries against the actual database.\n\nYour analyst is good but not infallible. They may have explored the right tables or the wrong ones.\nWhat they give you is raw data from the database — what columns exist, what values appeared, which\njoins worked, which failed. Your job is to use that evidence to write the final SQL.\n\nRules:\n  1. Use the analyst's query results as your evidence base. Column names, table names, join keys,\n     and filter values from PASSED queries are confirmed to exist in the database — use them exactly\n     as they appeared. Queries that FAILED with \"no such column: X\" confirm that X does not exist.\n  2. The analyst may have queried the wrong table or missed a relevant one. Consider all tables\n     the analyst touched, but also re-read the schema to check if a better path exists.\n  3. Write 5 candidates. Each candidate is your best complete answer under a different\n     interpretation of what the question is asking. The interpretations should differ in\n     meaningful ways: which tables to query, which columns to SELECT, which filters to apply,\n     how to aggregate, or what the question fundamentally means.\n\n       C1 — your primary interpretation: the answer you think is most likely correct based on\n             the question text, evidence, and analyst findings. This should be a complete,\n             production-quality query.\n       C2 — second interpretation: a structurally different reading. Perhaps a different table,\n             a different join path, or a different understanding of which column answers the\n             question (e.g., returning an ID instead of a name, or COUNT instead of a list).\n       C3 — third interpretation: another distinct reading. Could differ in aggregation logic,\n             filter scope, or SELECT shape (e.g., including the metric alongside the result).\n       C4 — fourth interpretation: explores a less obvious reading. Different grouping, an\n             additional condition implied by context, or a different column that could answer\n             the same question.\n       C5 — fifth interpretation, most elaborate: if the question could require comparing a\n             value to an aggregate (average, threshold, rank), use Nested Isolation here:\n               Inner query: compute the aggregate (AVG, MAX, COUNT, etc.)\n               Outer query: filter or join against that aggregate result\n             Pattern: SELECT col FROM t WHERE val > (SELECT AVG(val) FROM t)\n             If no aggregate comparison applies, use the most structurally different approach\n             you can justify.\n\n     Each candidate must be a complete, standalone, executable query — not a fragment or\n     simplification. Five variations of the same WHERE clause with minor tweaks is not five\n     interpretations.\n  4. Each candidate must be a complete, standalone, executable SQL query.\n  5. Different interpretations may reasonably differ in SELECT shape. For example, one\n     interpretation might return only COUNT(*), another might return COUNT(*) with the GROUP BY\n     column, and another might return the actual rows. Let each interpretation dictate its own\n     SELECT — do not artificially restrict columns across all five candidates.\n  6. Use LIMIT only when the question asks for a specific number of results (\"top 3\", \"the one\n     with the highest\"). If the question asks for a list without a count, do not use LIMIT.\n  7. You may use window functions (RANK, ROW_NUMBER, etc.) when the question requires ranking\n     within a group or ordering within a partition.\n\n  Proof-by-Cases principle:\n    C1-C5 must represent genuinely different interpretations of the question. If the correct\n    answer exists, at least one interpretation MUST capture it. Each must be structurally\n    distinct — different tables, joins, groupings, SELECT columns, or filter logic.\n\n  Exclusion Principle:\n    Every element in your SQL must be justified by either:\n      (a) the question text explicitly requiring it, or\n      (b) a PASSED query from the analyst's work confirming it exists and is relevant.\n    Do not add columns \"for context\", filters \"for safety\" (IS NOT NULL, status checks),\n    or joins \"just in case\". Unjustified additions are unproven conjectures — they narrow\n    or widen the result set beyond what was asked and cause failures.\n\n  Evidence hierarchy:\n    - PASSED queries with non-zero rows: proven facts. Use the exact column names, table\n      names, and values as they appeared.\n    - FAILED queries (errors): proven non-existence. The column or table does NOT exist\n      in that form. Do not use it.\n    - Zero-row PASSED queries: the filter combination is valid syntax but matches nothing.\n      Consider whether the filter is too restrictive.\n    - [OPEN-VALUE] / [WRONG-TABLE] tags from the analyst: unresolved conjectures. Prefer\n      alternatives that were actually confirmed.\n\nSQLite rules — non-negotiable:\n  - Column names with spaces or special characters MUST be double-quoted: \"Order Date\"\n  - Every query must begin with SELECT. Never use WITH ... AS (CTEs).\n  - Use whatever SQL structure best serves each interpretation: subqueries, window functions,\n    derived tables, or flat SELECT/JOIN/GROUP BY. The only constraint is correctness.\n  - Any query that joins two or more tables MUST assign a short alias to every table\n    (e.g. FROM movies m JOIN ratings r ON m.movie_id = r.movie_id) and MUST qualify every\n    column reference with its alias (e.g. m.movie_title, not just movie_title). Unqualified\n    column references in multi-table queries are ambiguous and will cause runtime errors.\n\nOutput format:\n## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: [what this reading assumes about the question]\nSELECT t1.col FROM t1 JOIN t2 ON t1.id = t2.fk WHERE t1.filter = value\n\n2. -- Second interpretation: [how this differs from C1]\nSELECT t1.id FROM t1 WHERE t1.different_filter = value\n\n3. -- Third interpretation: [what this captures that C1-C2 miss]\nSELECT t1.col, COUNT(*) FROM t1 GROUP BY t1.col\n\n4. -- Fourth interpretation: [alternative approach]\nSELECT t1.col FROM t1 JOIN t3 ON t1.id = t3.fk WHERE t3.filter = value\n\n5. -- Fifth interpretation: [most elaborate or aggregate-comparison approach]\nSELECT t1.col FROM t1 WHERE t1.val > (SELECT AVG(t2.val) FROM t1 t2)\n\nFormat rules:\n  - Numbered 1 through 5 exactly.\n  - Candidate 1 MUST start with \"1. --\" on its own line — never output the first candidate\n    as raw unnumbered SQL.\n  - Comment on same line as the number, starting with --.\n  - SQL starts on the next line, beginning with SELECT.\n  - Blank line between candidates.\n  - No markdown code fences. No bold. No extra headers.\n",
+   "user_prompt": "Question: List the superheroes from Marvel Comics who have the super power of 'Super Strength'.\nEvidence: the superheroes from Marvel Comics refers to publisher_name = 'Marvel Comics'; super power of \"Super Strength\" refers to power_name = 'Super Strength';\n\nDatabase: superhero\n\n---\nANALYST WORK PRODUCT\n\nStage 1 — What was checked and what was found:\n1. Checked: EXISTENCE PROOF: Confirm if 'Marvel Comics' exists exactly as written in the publisher table.\n   Result: publisher_name: Marvel Comics\n\n2. Checked: EXISTENCE PROOF: Confirm if 'Super Strength' exists exactly as written in the superpower table.\n   Result: power_name: Super Strength\n\n3. Checked: IDENTIFIER PRECISION: Check a sample of superhero names to determine the format of the alias.\n   Result: superhero_name: 3-D Man\n   (20 rows total)\n\n4. Checked: IDENTIFIER PRECISION: Check a sample of full names to compare against the alias.\n   Result: full_name: Charles Chandler\n   (20 rows total)\n\n5. Checked: CONNECTIVITY LEMMA: Verify the join key on the superhero side for publishers.\n   Result: publisher_id: 13\n   (5 rows total)\n\n6. Checked: CONNECTIVITY LEMMA: Verify the join key on the publisher side.\n   Result: id: 1\n   (5 rows total)\n\n7. Checked: CONNECTIVITY LEMMA: Verify the join key between superheroes and their powers.\n   Result: hero_id: 1\n   (5 rows total)\n\n8. Checked: CONNECTIVITY LEMMA: Verify the superhero ID exists in the main table.\n   Result: id: 1\n   (5 rows total)\n\n9. Checked: CONNECTIVITY LEMMA: Verify the power ID link from the mapping table.\n   Result: power_id: 1\n   (5 rows total)\n\n10. Checked: CONNECTIVITY LEMMA: Verify the power ID exists in the superpower table.\n   Result: id: 1\n   (5 rows total)\n\n11. Checked: COLUMN SUITABILITY PROOF: Check for nulls in superhero_name to ensure it is a reliable identifier.\n   Result: nulls: 0 | total: 750\n\n12. Checked: COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to see if any heroes are unassigned.\n   Result: nulls: 3 | total: 750\n\n13. Checked: AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\n   Result: COUNT(*): 750\n\n14. Checked: SCOPE PROOF: Verify how many superheroes belong to 'Marvel Comics'.\n   Result: COUNT(*): 387\n\n15. Checked: SCOPE PROOF: Verify how many superheroes possess the power of 'Super Strength'.\n   Result: COUNT(*): 358\n\n16. Checked: ANNOTATION LEMMA: Check if the attribute table contains any strength-related values that might overlap with powers.\n   Result: attribute_name: Intelligence\n   (6 rows total)\n\n17. Checked: COLUMN SUITABILITY PROOF: Verify null counts for power_name in the superpower table.\n   Result: nulls: 0 | total: 167\n\n\nStage 2 — Hypothesis verdict (Phase 4):\n1. [CONFIRMED] The client wants the descriptive label `superhero_name` rather than the real name. Query 3 and 4 show both exist, but the request for \"the superheroes\" typically refers to their known aliases.\n2. [CONFIRMED] The publisher name is stored exactly as 'Marvel Comics'. Query 1 proves this exact string exists in the `publisher` table.\n3. [CONFIRMED] The power name is stored exactly as 'Super Strength'. Query 2 proves this exact string exists in the `superpower` table.\n4. [CONFIRMED] No status filters (e.g., active/inactive) are required. Phase 2 schema review and Query 13 confirm no such columns exist to filter by.\n5. [LIKE-VS-ENUM] The request for \"Super Strength\" is handled via the `superpower` table, but a separate `attribute` table exists with a 'Strength' entry. Query 16 reveals that strength may be tracked as a numeric attribute in addition to or instead of a named power.\n\nStage 2 — Winning hypothesis (Phase 4b):\nYES, the original hypothesis holds, but it must be refined to ensure we are not ignoring the `attribute` table. The query results confirm that both 'Marvel Comics' and 'Super Strength' exist as exact strings in their respective tables, and the join paths between superheroes, publishers, and powers are valid. However, the discovery of a 'Strength' attribute suggests that \"super power\" might be interpreted by some as a high value in the `attribute` table rather than a record in the `superpower` table. My updated hypothesis is to stick to the explicit evidence provided ('Super Strength' in `superpower`), but I will perform final checks on the `attribute` table to ensure no critical data is missed.\n\nUpdated Hypothesis:\n- Tables: `superhero`, `publisher`, `superpower`, `hero_power`\n- Columns: `superhero.superhero_name`, `publisher.publisher_name`, `superpower.power_name`\n- Confirmed Values: 'Marvel Comics', 'Super Strength'\n- Join Path: `superhero.publisher_id` -> `publisher.id` AND `superhero.id` -> `hero_power.hero_id` -> `superpower.id`\n\nStage 2 — Confirmation checks and what was found:\n1. Checked: RESOLVE [LIKE-VS-ENUM]: Check if 'Super Strength' exists as an exact value in the attribute table.\n   Result: (no rows returned)\n\n2. Checked: RESOLVE [LIKE-VS-ENUM]: Explore all attributes containing the word 'Strength' to see if they are enums or codes.\n   Result: attribute_name: Strength\n\n3. Checked: RESOLVE [LIKE-VS-ENUM]: Check a sample of values for the 'Strength' attribute to see if it is numeric/coded.\n   Result: attribute_value: 35\n   (20 rows total)\n\n4. Checked: RESOLVE [LIKE-VS-ENUM]: Check for any other attributes that might be interpreted as \"Super Strength\".\n   Result: attribute_name: Intelligence\n   (6 rows total)\n\n5. Checked: VALIDATE SCOPE: Ensure no other publishers contain the word 'Marvel' which would split the results.\n   Result: publisher_name: Marvel Comics\n\n6. Checked: VALIDATE SCOPE: Check for variations of 'Super Strength' in the superpower table.\n   Result: power_name: Super Strength\n\n7. Checked: CONNECTIVITY TEST: Verify that Marvel superheroes actually have entries in the hero_power table.\n   Result: COUNT(*): 2973\n\n8. Checked: DATA INTEGRITY: Check for superheroes with the power 'Super Strength' who have no assigned publisher.\n   Result: COUNT(*): 0\n\n9. Checked: DATA INTEGRITY: Check for any nulls in the mapping table that could break joins.\n   Result: COUNT(*): 0\n\n10. Checked: COLUMN SUITABILITY: Verify if full_name is populated for Marvel heroes with Super Strength.\n   Result: COUNT(*): 21\n\n11. Checked: CROSS-REFERENCE: See if any heroes have the power 'Super Strength' but a low value in the 'Strength' attribute.\n   Result: superhero_name: 3-D Man | attribute_value: 35\n   (20 rows total)\n\n12. Checked: CROSS-REFERENCE: See if any heroes have a high 'Strength' attribute but NOT the power 'Super Strength'.\n   Result: superhero_name: A-Bomb\n   (20 rows total)\n\n13. Checked: CONNECTIVITY TEST: Verify the publisher link for a known Marvel character (e.g., Iron Man if present).\n   Result: publisher_name: Marvel Comics\n\n14. Checked: DATA VOLUME: Check total number of distinct powers to understand the granularity of power_name.\n   Result: COUNT(DISTINCT power_name): 167\n\n15. Checked: FINAL FILTER CHECK: Verify that 'Marvel Comics' is indeed the exact string and not 'Marvel Comics ' with a trailing space.\n   Result: publisher_name: Marvel Comics | LENGTH(publisher_name): 13\n\n\n---\nWrite 5 candidate SQL queries sweeping from the least to the most work required to answer the question.",
+   "response": "## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: The user wants the alias names of superheroes from Marvel Comics who possess the specific power 'Super Strength'.\nSELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' AND sp.power_name = 'Super Strength'\n\n2. -- Second interpretation: The user wants the real full names of these superheroes rather than their aliases.\nSELECT s.full_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' AND sp.power_name = 'Super Strength'\n\n3. -- Third interpretation: The user is looking for the total count of superheroes from Marvel Comics who have this power.\nSELECT COUNT(*)\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' AND sp.power_name = 'Super Strength'\n\n4. -- Fourth interpretation: Using subqueries to isolate the publisher and power filters, which avoids multiple joins in the main SELECT block.\nSELECT s.superhero_name\nFROM superhero s\nWHERE s.publisher_id IN (SELECT p.id FROM publisher p WHERE p.publisher_name = 'Marvel Comics')\nAND s.id IN (SELECT hp.hero_id FROM hero_power hp JOIN superpower sp ON hp.power_id = sp.id WHERE sp.power_name = 'Super Strength')\n\n5. -- Fifth interpretation: Most elaborate; identifies Marvel superheroes with 'Super Strength' who are \"exceptionally powerful\" by having more total powers than the average superhero across the database.\nSELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' \nAND sp.power_name = 'Super Strength'\nAND (SELECT COUNT(*) FROM hero_power hp2 WHERE hp2.hero_id = s.id) > (SELECT AVG(p_count) FROM (SELECT COUNT(*) AS p_count FROM hero_power GROUP BY hero_id))",
+   "candidates": [
+    {
+     "n": 1,
+     "comment": "Primary interpretation: The user wants the alias names of superheroes from Marvel Comics who possess the specific power 'Super Strength'.",
+     "sql": "SELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' AND sp.power_name = 'Super Strength'",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "rows": [
+      [
+       "3-D Man"
+      ],
+      [
+       "A-Bomb"
+      ],
+      [
+       "Abomination"
+      ],
+      [
+       "Abraxas"
+      ],
+      [
+       "Absorbing Man"
+      ],
+      [
+       "Agent Zero"
+      ],
+      [
+       "Air-Walker"
+      ],
+      [
+       "Ajax"
+      ],
+      [
+       "Angel"
+      ],
+      [
+       "Angel Dust"
+      ],
+      [
+       "Annihilus"
+      ],
+      [
+       "Ant-Man II"
+      ],
+      [
+       "Anti-Venom"
+      ],
+      [
+       "Apocalypse"
+      ],
+      [
+       "Arachne"
+      ],
+      [
+       "Archangel"
+      ],
+      [
+       "Arclight"
+      ],
+      [
+       "Ardina"
+      ],
+      [
+       "Ares"
+      ],
+      [
+       "Armor"
+      ],
+      [
+       "Atlas"
+      ],
+      [
+       "Atlas"
+      ],
+      [
+       "Bantam"
+      ],
+      [
+       "Battlestar"
+      ],
+      [
+       "Beast"
+      ],
+      [
+       "Beta Ray Bill"
+      ],
+      [
+       "Beyonder"
+      ],
+      [
+       "Binary"
+      ],
+      [
+       "Bird-Man"
+      ],
+      [
+       "Bishop"
+      ],
+      [
+       "Black Bolt"
+      ],
+      [
+       "Black Cat"
+      ],
+      [
+       "Blackout"
+      ],
+      [
+       "Blackwulf"
+      ],
+      [
+       "Blade"
+      ],
+      [
+       "Blob"
+      ],
+      [
+       "Bloodaxe"
+      ],
+      [
+       "Bloodwraith"
+      ],
+      [
+       "Cable"
+      ],
+      [
+       "Callisto"
+      ],
+      [
+       "Captain Britain"
+      ],
+      [
+       "Captain Marvel"
+      ],
+      [
+       "Captain Planet"
+      ],
+      [
+       "Carnage"
+      ],
+      [
+       "Cat"
+      ],
+      [
+       "Colossus"
+      ],
+      [
+       "Cottonmouth"
+      ],
+      [
+       "Crimson Dynamo"
+      ],
+      [
+       "Crystal"
+      ],
+      [
+       "Deathlok"
+      ]
+     ],
+     "row_count": 201,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 2,
+     "comment": "Second interpretation: The user wants the real full names of these superheroes rather than their aliases.",
+     "sql": "SELECT s.full_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' AND sp.power_name = 'Super Strength'",
+     "status": "success",
+     "columns": [
+      "full_name"
+     ],
+     "rows": [
+      [
+       "Charles Chandler"
+      ],
+      [
+       "Richard Milhouse Jones"
+      ],
+      [
+       "Emil Blonsky"
+      ],
+      [
+       "Abraxas"
+      ],
+      [
+       null
+      ],
+      [
+       "Christoph Nord"
+      ],
+      [
+       "Gabriel Lan"
+      ],
+      [
+       null
+      ],
+      [
+       "Liam"
+      ],
+      [
+       "Christina"
+      ],
+      [
+       "Annihilus"
+      ],
+      [
+       "Scott Lang"
+      ],
+      [
+       "Edward Charles Allan Brock"
+      ],
+      [
+       "En Sabah Nur"
+      ],
+      [
+       "Julia Carpenter"
+      ],
+      [
+       "Warren Kenneth Worthington III"
+      ],
+      [
+       "Philippa Sontag"
+      ],
+      [
+       "-"
+      ],
+      [
+       "-"
+      ],
+      [
+       "Hisako Ichiki"
+      ],
+      [
+       "-"
+      ],
+      [
+       "Erik Stephan Josten"
+      ],
+      [
+       "Roberto Velasquez"
+      ],
+      [
+       "Lemar Hoskins"
+      ],
+      [
+       "Henry Philip McCoy"
+      ],
+      [
+       "Beta Ray Bill (translation of his Korbinite name)"
+      ],
+      [
+       "-"
+      ],
+      [
+       "Carol Susan Jane Danvers"
+      ],
+      [
+       null
+      ],
+      [
+       "Lucas Bishop"
+      ],
+      [
+       "Blackagar Boltagon"
+      ],
+      [
+       "Felicia Hardy"
+      ],
+      [
+       "-"
+      ],
+      [
+       "Lucian"
+      ],
+      [
+       "Eric Brooks"
+      ],
+      [
+       "Frederick J. Dukes"
+      ],
+      [
+       "Jackie Lukus"
+      ],
+      [
+       "Sean Dolan"
+      ],
+      [
+       "Nathan Christopher Charles Summers Dayspring"
+      ],
+      [
+       "Callisto"
+      ],
+      [
+       "Brian Braddock"
+      ],
+      [
+       null
+      ],
+      [
+       "-"
+      ],
+      [
+       null
+      ],
+      [
+       "Shirlee Bryant"
+      ],
+      [
+       "Piotr Nikolaievitch Rasputin"
+      ],
+      [
+       "Burchell Clemens"
+      ],
+      [
+       "Anton Vanko"
+      ],
+      [
+       "Crystallia Amaquelin Maximoff"
+      ],
+      [
+       "Luther Manning"
+      ]
+     ],
+     "row_count": 201,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 3,
+     "comment": "Third interpretation: The user is looking for the total count of superheroes from Marvel Comics who have this power.",
+     "sql": "SELECT COUNT(*)\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' AND sp.power_name = 'Super Strength'",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "rows": [
+      [
+       201
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 4,
+     "comment": "Fourth interpretation: Using subqueries to isolate the publisher and power filters, which avoids multiple joins in the main SELECT block.",
+     "sql": "SELECT s.superhero_name\nFROM superhero s\nWHERE s.publisher_id IN (SELECT p.id FROM publisher p WHERE p.publisher_name = 'Marvel Comics')\nAND s.id IN (SELECT hp.hero_id FROM hero_power hp JOIN superpower sp ON hp.power_id = sp.id WHERE sp.power_name = 'Super Strength')",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "rows": [
+      [
+       "3-D Man"
+      ],
+      [
+       "A-Bomb"
+      ],
+      [
+       "Abomination"
+      ],
+      [
+       "Abraxas"
+      ],
+      [
+       "Absorbing Man"
+      ],
+      [
+       "Agent Zero"
+      ],
+      [
+       "Air-Walker"
+      ],
+      [
+       "Ajax"
+      ],
+      [
+       "Angel"
+      ],
+      [
+       "Angel Dust"
+      ],
+      [
+       "Annihilus"
+      ],
+      [
+       "Ant-Man II"
+      ],
+      [
+       "Anti-Venom"
+      ],
+      [
+       "Apocalypse"
+      ],
+      [
+       "Arachne"
+      ],
+      [
+       "Archangel"
+      ],
+      [
+       "Arclight"
+      ],
+      [
+       "Ardina"
+      ],
+      [
+       "Ares"
+      ],
+      [
+       "Armor"
+      ],
+      [
+       "Atlas"
+      ],
+      [
+       "Atlas"
+      ],
+      [
+       "Bantam"
+      ],
+      [
+       "Battlestar"
+      ],
+      [
+       "Beast"
+      ],
+      [
+       "Beta Ray Bill"
+      ],
+      [
+       "Beyonder"
+      ],
+      [
+       "Binary"
+      ],
+      [
+       "Bird-Man"
+      ],
+      [
+       "Bishop"
+      ],
+      [
+       "Black Bolt"
+      ],
+      [
+       "Black Cat"
+      ],
+      [
+       "Blackout"
+      ],
+      [
+       "Blackwulf"
+      ],
+      [
+       "Blade"
+      ],
+      [
+       "Blob"
+      ],
+      [
+       "Bloodaxe"
+      ],
+      [
+       "Bloodwraith"
+      ],
+      [
+       "Cable"
+      ],
+      [
+       "Callisto"
+      ],
+      [
+       "Captain Britain"
+      ],
+      [
+       "Captain Marvel"
+      ],
+      [
+       "Captain Planet"
+      ],
+      [
+       "Carnage"
+      ],
+      [
+       "Cat"
+      ],
+      [
+       "Colossus"
+      ],
+      [
+       "Cottonmouth"
+      ],
+      [
+       "Crimson Dynamo"
+      ],
+      [
+       "Crystal"
+      ],
+      [
+       "Deathlok"
+      ]
+     ],
+     "row_count": 201,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 5,
+     "comment": "Fifth interpretation: Most elaborate; identifies Marvel superheroes with 'Super Strength' who are \"exceptionally powerful\" by having more total powers than the average superhero across the database.",
+     "sql": "SELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' \nAND sp.power_name = 'Super Strength'\nAND (SELECT COUNT(*) FROM hero_power hp2 WHERE hp2.hero_id = s.id) > (SELECT AVG(p_count) FROM (SELECT COUNT(*) AS p_count FROM hero_power GROUP BY hero_id))",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "rows": [
+      [
+       "Abraxas"
+      ],
+      [
+       "Absorbing Man"
+      ],
+      [
+       "Angel"
+      ],
+      [
+       "Ant-Man II"
+      ],
+      [
+       "Anti-Venom"
+      ],
+      [
+       "Apocalypse"
+      ],
+      [
+       "Arachne"
+      ],
+      [
+       "Ardina"
+      ],
+      [
+       "Atlas"
+      ],
+      [
+       "Atlas"
+      ],
+      [
+       "Beast"
+      ],
+      [
+       "Beyonder"
+      ],
+      [
+       "Black Bolt"
+      ],
+      [
+       "Blackout"
+      ],
+      [
+       "Blade"
+      ],
+      [
+       "Bloodaxe"
+      ],
+      [
+       "Bloodwraith"
+      ],
+      [
+       "Cable"
+      ],
+      [
+       "Captain Britain"
+      ],
+      [
+       "Captain Marvel"
+      ],
+      [
+       "Captain Planet"
+      ],
+      [
+       "Carnage"
+      ],
+      [
+       "Colossus"
+      ],
+      [
+       "Deathlok"
+      ],
+      [
+       "Doctor Doom"
+      ],
+      [
+       "Doctor Octopus"
+      ],
+      [
+       "Doppelganger"
+      ],
+      [
+       "Dormammu"
+      ],
+      [
+       "Drax the Destroyer"
+      ],
+      [
+       "Emma Frost"
+      ],
+      [
+       "Evilhawk"
+      ],
+      [
+       "Fallen One II"
+      ],
+      [
+       "Feral"
+      ],
+      [
+       "Fin Fang Foom"
+      ],
+      [
+       "Franklin Richards"
+      ],
+      [
+       "Galactus"
+      ],
+      [
+       "Gamora"
+      ],
+      [
+       "Ghost Rider"
+      ],
+      [
+       "Gladiator"
+      ],
+      [
+       "Green Goblin"
+      ],
+      [
+       "Groot"
+      ],
+      [
+       "Hela"
+      ],
+      [
+       "Hulk"
+      ],
+      [
+       "Hybrid"
+      ],
+      [
+       "Hyperion"
+      ],
+      [
+       "Iceman"
+      ],
+      [
+       "Iron Fist"
+      ],
+      [
+       "Iron Man"
+      ],
+      [
+       "Jack of Hearts"
+      ],
+      [
+       "Juggernaut"
+      ]
+     ],
+     "row_count": 112,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    }
+   ],
+   "chosen": 1,
+   "gold_result": {
+    "columns": [
+     "superhero_name"
+    ],
+    "rows": [
+     [
+      "3-D Man"
+     ],
+     [
+      "A-Bomb"
+     ],
+     [
+      "Abomination"
+     ],
+     [
+      "Abraxas"
+     ],
+     [
+      "Absorbing Man"
+     ],
+     [
+      "Agent Zero"
+     ],
+     [
+      "Air-Walker"
+     ],
+     [
+      "Ajax"
+     ],
+     [
+      "Angel"
+     ],
+     [
+      "Angel Dust"
+     ],
+     [
+      "Annihilus"
+     ],
+     [
+      "Ant-Man II"
+     ],
+     [
+      "Anti-Venom"
+     ],
+     [
+      "Apocalypse"
+     ],
+     [
+      "Arachne"
+     ],
+     [
+      "Archangel"
+     ],
+     [
+      "Arclight"
+     ],
+     [
+      "Ardina"
+     ],
+     [
+      "Ares"
+     ],
+     [
+      "Armor"
+     ],
+     [
+      "Atlas"
+     ],
+     [
+      "Atlas"
+     ],
+     [
+      "Bantam"
+     ],
+     [
+      "Battlestar"
+     ],
+     [
+      "Beast"
+     ],
+     [
+      "Beta Ray Bill"
+     ],
+     [
+      "Beyonder"
+     ],
+     [
+      "Binary"
+     ],
+     [
+      "Bird-Man"
+     ],
+     [
+      "Bishop"
+     ],
+     [
+      "Black Bolt"
+     ],
+     [
+      "Black Cat"
+     ],
+     [
+      "Blackout"
+     ],
+     [
+      "Blackwulf"
+     ],
+     [
+      "Blade"
+     ],
+     [
+      "Blob"
+     ],
+     [
+      "Bloodaxe"
+     ],
+     [
+      "Bloodwraith"
+     ],
+     [
+      "Cable"
+     ],
+     [
+      "Callisto"
+     ],
+     [
+      "Captain Britain"
+     ],
+     [
+      "Captain Marvel"
+     ],
+     [
+      "Captain Planet"
+     ],
+     [
+      "Carnage"
+     ],
+     [
+      "Cat"
+     ],
+     [
+      "Colossus"
+     ],
+     [
+      "Cottonmouth"
+     ],
+     [
+      "Crimson Dynamo"
+     ],
+     [
+      "Crystal"
+     ],
+     [
+      "Deathlok"
+     ]
+    ],
+    "row_count": 201
+   }
+  }
+ },
+ "elapsed_s": 538.6,
+ "difficulty": "challenging",
+ "single_shot_model": "google/gemma-4-31b",
+ "single_shot": {
+  "no_evidence": {
+   "include_evidence": false,
+   "system_prompt": "You are an expert data analyst who writes SQLite queries. Given a database schema and a question, write ONE SQLite SELECT query that answers it. Use only tables and columns that appear in the schema. Output the query and nothing else — no explanation, no markdown fences.",
+   "user_prompt": "Schema:\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nQuestion: List the superheroes from Marvel Comics who have the super power of 'Super Strength'.\n\nWrite the SQLite query:",
+   "sql": "SELECT T1.superhero_name FROM superhero AS T1 JOIN publisher AS T2 ON T1.publisher_id = T2.id JOIN hero_power AS T3 ON T1.id = T3.hero_id JOIN superpower AS T4 ON T3.power_id = T4.id WHERE T2.publisher_name = 'Marvel Comics' AND T4.power_name = 'Super Strength'",
+   "status": "success",
+   "columns": [
+    "superhero_name"
+   ],
+   "rows": [
+    [
+     "3-D Man"
+    ],
+    [
+     "A-Bomb"
+    ],
+    [
+     "Abomination"
+    ],
+    [
+     "Abraxas"
+    ],
+    [
+     "Absorbing Man"
+    ],
+    [
+     "Agent Zero"
+    ],
+    [
+     "Air-Walker"
+    ],
+    [
+     "Ajax"
+    ],
+    [
+     "Angel"
+    ],
+    [
+     "Angel Dust"
+    ],
+    [
+     "Annihilus"
+    ],
+    [
+     "Ant-Man II"
+    ],
+    [
+     "Anti-Venom"
+    ],
+    [
+     "Apocalypse"
+    ],
+    [
+     "Arachne"
+    ],
+    [
+     "Archangel"
+    ],
+    [
+     "Arclight"
+    ],
+    [
+     "Ardina"
+    ],
+    [
+     "Ares"
+    ],
+    [
+     "Armor"
+    ],
+    [
+     "Atlas"
+    ],
+    [
+     "Atlas"
+    ],
+    [
+     "Bantam"
+    ],
+    [
+     "Battlestar"
+    ],
+    [
+     "Beast"
+    ],
+    [
+     "Beta Ray Bill"
+    ],
+    [
+     "Beyonder"
+    ],
+    [
+     "Binary"
+    ],
+    [
+     "Bird-Man"
+    ],
+    [
+     "Bishop"
+    ],
+    [
+     "Black Bolt"
+    ],
+    [
+     "Black Cat"
+    ],
+    [
+     "Blackout"
+    ],
+    [
+     "Blackwulf"
+    ],
+    [
+     "Blade"
+    ],
+    [
+     "Blob"
+    ],
+    [
+     "Bloodaxe"
+    ],
+    [
+     "Bloodwraith"
+    ],
+    [
+     "Cable"
+    ],
+    [
+     "Callisto"
+    ],
+    [
+     "Captain Britain"
+    ],
+    [
+     "Captain Marvel"
+    ],
+    [
+     "Captain Planet"
+    ],
+    [
+     "Carnage"
+    ],
+    [
+     "Cat"
+    ],
+    [
+     "Colossus"
+    ],
+    [
+     "Cottonmouth"
+    ],
+    [
+     "Crimson Dynamo"
+    ],
+    [
+     "Crystal"
+    ],
+    [
+     "Deathlok"
+    ]
+   ],
+   "row_count": 201,
+   "truncated": false,
+   "error": null,
+   "matches_gold": true
+  },
+  "with_evidence": {
+   "include_evidence": true,
+   "system_prompt": "You are an expert data analyst who writes SQLite queries. Given a database schema and a question, write ONE SQLite SELECT query that answers it. Use only tables and columns that appear in the schema. Output the query and nothing else — no explanation, no markdown fences.",
+   "user_prompt": "Schema:\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nQuestion: List the superheroes from Marvel Comics who have the super power of 'Super Strength'.\nHint: the superheroes from Marvel Comics refers to publisher_name = 'Marvel Comics'; super power of \"Super Strength\" refers to power_name = 'Super Strength';\n\nWrite the SQLite query:",
+   "sql": "SELECT T1.superhero_name FROM superhero AS T1 JOIN publisher AS T2 ON T1.publisher_id = T2.id JOIN hero_power AS T3 ON T1.id = T3.hero_id JOIN superpower AS T4 ON T3.power_id = T4.id WHERE T2.publisher_name = 'Marvel Comics' AND T4.power_name = 'Super Strength'",
+   "status": "success",
+   "columns": [
+    "superhero_name"
+   ],
+   "rows": [
+    [
+     "3-D Man"
+    ],
+    [
+     "A-Bomb"
+    ],
+    [
+     "Abomination"
+    ],
+    [
+     "Abraxas"
+    ],
+    [
+     "Absorbing Man"
+    ],
+    [
+     "Agent Zero"
+    ],
+    [
+     "Air-Walker"
+    ],
+    [
+     "Ajax"
+    ],
+    [
+     "Angel"
+    ],
+    [
+     "Angel Dust"
+    ],
+    [
+     "Annihilus"
+    ],
+    [
+     "Ant-Man II"
+    ],
+    [
+     "Anti-Venom"
+    ],
+    [
+     "Apocalypse"
+    ],
+    [
+     "Arachne"
+    ],
+    [
+     "Archangel"
+    ],
+    [
+     "Arclight"
+    ],
+    [
+     "Ardina"
+    ],
+    [
+     "Ares"
+    ],
+    [
+     "Armor"
+    ],
+    [
+     "Atlas"
+    ],
+    [
+     "Atlas"
+    ],
+    [
+     "Bantam"
+    ],
+    [
+     "Battlestar"
+    ],
+    [
+     "Beast"
+    ],
+    [
+     "Beta Ray Bill"
+    ],
+    [
+     "Beyonder"
+    ],
+    [
+     "Binary"
+    ],
+    [
+     "Bird-Man"
+    ],
+    [
+     "Bishop"
+    ],
+    [
+     "Black Bolt"
+    ],
+    [
+     "Black Cat"
+    ],
+    [
+     "Blackout"
+    ],
+    [
+     "Blackwulf"
+    ],
+    [
+     "Blade"
+    ],
+    [
+     "Blob"
+    ],
+    [
+     "Bloodaxe"
+    ],
+    [
+     "Bloodwraith"
+    ],
+    [
+     "Cable"
+    ],
+    [
+     "Callisto"
+    ],
+    [
+     "Captain Britain"
+    ],
+    [
+     "Captain Marvel"
+    ],
+    [
+     "Captain Planet"
+    ],
+    [
+     "Carnage"
+    ],
+    [
+     "Cat"
+    ],
+    [
+     "Colossus"
+    ],
+    [
+     "Cottonmouth"
+    ],
+    [
+     "Crimson Dynamo"
+    ],
+    [
+     "Crystal"
+    ],
+    [
+     "Deathlok"
+    ]
+   ],
+   "row_count": 201,
+   "truncated": false,
+   "error": null,
+   "matches_gold": true
+  }
+ },
+ "stages_noev": {
+  "stage1": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Today is your first day at a new company.\n\nNormally this work takes three days. You do not have three days. You have to do it all today.\n\nHere is how you think through a new client question:\n\nPHASE 1 — Before you look at anything:\nYou read the question and evidence first, with the schema face-down. You write out every question\nyou would want answered and every assumption you are making. You are a philosopher — you think in\nwho, what, when, where, by whom, for whom. You think in counter-proofs. What would make an\nassumption wrong? What encoding or edge case breaks the obvious reading? Stating a wrong assumption\nexplicitly is more honest and useful than a vague non-answer.\n\nPHASE 2 — You look at the schema:\nThe data dictionary arrives: table names, column names, types, primary keys, and foreign key\nrelationships. You do NOT get statistics — no min, max, null counts, or sample values. That is\nwhat Phase 3 is for. Some of your Phase 1 assumptions will be confirmed. Some will be wrong. Some\nnew questions will appear that you could not have thought of without seeing the actual column names.\nYou update every assumption. You tag each question.\n\nPHASE 3 — You write exploratory SQL:\nYou have database access. You are excited and thorough. You know that being new means you earn trust\nby being rigorous, not reckless. You have two phases of thinking behind you — now you turn that into\nexploratory SQL. Write at least 15 queries. The system will reject outputs with fewer than 5 —\nthose records will be skipped entirely and the question will not advance to the next stage.\n\nYou have six proof obligations:\n\n1. EXISTENCE LEMMA (DISTINCT probes):\n   For every categorical column you plan to filter on, run SELECT DISTINCT col FROM table LIMIT 20.\n   This is a direct proof of existence — it proves which values actually live in the database.\n   Without this proof, any filter using that column is an ungrounded conjecture. The system will\n   treat unproven filter values as errors in Stage 2.\n\n2. CONNECTIVITY LEMMA (join verification):\n   Before writing any multi-table JOIN, prove the join path works. Run a query on each side of the\n   join key: SELECT DISTINCT join_col FROM table_a LIMIT 5 and SELECT DISTINCT join_col FROM table_b\n   LIMIT 5. If both return values and they overlap, the join is proven. If either returns zero rows\n   or different types, the join is disproven — do not use it.\n\n3. AXIOMATIC NEUTRALITY (contrapositive for filters):\n   Do not add status, active/inactive, or any other filter unless the question explicitly mentions\n   it. Assume the contrapositive: if the question does not mention a constraint, its absence is\n   correct until you prove otherwise. Run at least one query WITHOUT any assumed filter to establish\n   the unfiltered baseline.\n\n4. COLUMN SUITABILITY PROOFS (null-count & scope):\n   Before using any column for aggregation (COUNT, AVG, SUM, MAX, MIN), run a null-count query:\n   SELECT COUNT(*) - COUNT(col) as nulls, COUNT(*) as total FROM table.\n   If nulls exceed 50% of total, that column is statistically unsuitable as a primary metric —\n   look for alternatives. After identifying your primary filter value, run TWO scope queries:\n   (a) one query WITHOUT the filter — note the total row count (unfiltered universe).\n   (b) one query WITH the filter — note the filtered row count.\n   Compare: if filtered count equals unfiltered count, the filter is a no-op and likely wrong.\n   If filtered count is zero, the value does not exist. Both indicate a scope mismatch.\n\n5. ANNOTATION LEMMA (semantic mapping of opaque columns):\n   If the schema contains column names that are short codes, single letters, abbreviations, or\n   numeric identifiers (e.g., col1, X, stat, code_a), you cannot assume their meaning from the\n   name alone. For every such opaque column that could be relevant to the question, run:\n   SELECT DISTINCT col FROM table LIMIT 20\n   Then annotate each with its apparent meaning based on the values returned. Format your comment:\n   \"ANNOTATION LEMMA: col_name appears to be [description] (values: val1, val2, val3)\"\n   This is a direct proof of semantic identity — without it, any use of an opaque column is an\n   ungrounded assumption about what the column contains.\n\n6. JOIN VERIFICATION (non-key joins):\n   The schema marks primary keys [PK] and foreign keys [FK]. If you plan to join two tables on\n   a column that is NOT marked as a PK or FK, you must prove the join is valid by querying both\n   sides: SELECT DISTINCT col FROM table_a LIMIT 5 and SELECT DISTINCT col FROM table_b LIMIT 5.\n   If the values do not overlap, the join is invalid. PK/FK joins are pre-verified by the schema.\n\nAdditional rules:\n- Multi-part question decomposition: Before writing any Phase 1 assumptions, read the\n  question and ask: does it contain multiple distinct sub-questions? A multi-part question\n  typically uses connectors like \"and\", \"also\", \"as well as\", or asks for two different\n  pieces of information in one sentence (e.g. \"What is X? What is Y for Z?\"). If yes,\n  list each sub-question separately in Phase 1 and treat them as independent proof obligations.\n  Your Phase 3 queries must cover every part — a query that only answers one part of a\n  multi-part question is incomplete. The final SQL must return all parts in a single query\n  (using JOIN, subquery, or multiple SELECT expressions as appropriate).\n- Cover all tables that could relate to the question, not just the most obvious one.\n- SELECT only the columns needed for each specific check — no extra \"context\" columns.\n- Identifier Precision: Determine whether the question asks for a primary identifier\n  (ID, code, number) or a descriptive label (name, title, description). If both columns exist\n  side by side in the same table, run a DISTINCT query on each. Your Phase 1 assumptions must\n  explicitly state which column type the question wants. This prevents the Director from\n  guessing at the SELECT column later.\n- Each query has exactly one SQL comment (-- ...) that is a single complete sentence explaining\n  why this specific piece of information matters for answering the client question.\n- Always use LIMIT. Check both heads and tails for any table you are uncertain about.\n- Do NOT write the final answer query — that comes after you see what these return.\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\nA numbered list. For each item: state the question, then immediately state your current assumption.\nAssumptions can be wrong — that is expected and useful.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, explaining why these are the\nright questions to ask.\n\n## PHASE 2 — SCHEMA REVIEW\nA numbered list. For each item from Phase 1, mark it with exactly one tag:\n  [CONFIRMED] — the profile supports your Phase 1 assumption\n  [REVISED]   — you need to update your assumption based on what you see\n  [NEW]       — a question that did not exist in Phase 1, raised by the schema or statistics\n  [DROPPED]   — this question is no longer relevant given what the profile shows\n\nAfter the tag, give a brief one-sentence reason.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, describing what the profile\nrevealed and what still requires direct database investigation.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\nA numbered list of SQL queries. Minimum 15 queries.\n\nSQLite rules — this is non-negotiable:\n- The database engine is SQLite. Write only SQL that SQLite supports.\n- Column names that contain spaces, parentheses, or special characters MUST be\n  wrapped in double quotes. Example: \"County Name\", \"Free Meal Count (K-12)\".\n  Never write an unquoted column name that contains a space.\n- Do not use window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.).\n- Always use LIMIT.\n- Do NOT write the final answer query.\n\nOutput format for Phase 3 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the department_type column.\n   SELECT DISTINCT department_type FROM departments LIMIT 20;\n\n2. -- SCOPE CHECK: Establish the time range covered by the data.\n   SELECT MIN(hire_date), MAX(hire_date) FROM employees LIMIT 1;\n\n3. -- NULL-COUNT PROOF: Verify salary column suitability for aggregation.\n   SELECT COUNT(*) - COUNT(salary) as nulls, COUNT(*) as total FROM employees LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between employees and departments.\n   SELECT DISTINCT department_id FROM employees LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Other side of the join.\n   SELECT DISTINCT id FROM departments LIMIT 5;\n\n6. -- ANNOTATION LEMMA: Determine what opaque column 'dept_code' actually contains.\n   SELECT DISTINCT dept_code FROM departments LIMIT 20;\n\n7. -- JOIN VERIFICATION: Verify non-key join between employees.role and roles.role_name.\n   SELECT DISTINCT role FROM employees LIMIT 5;\n\n8. -- SCOPE PROOF: Unfiltered universe count for the target table.\n   SELECT COUNT(*) FROM employees LIMIT 1;\n\n9. -- SCOPE PROOF: Filtered count — verify filter narrows to expected scope.\n   SELECT COUNT(*) FROM employees WHERE department_type = 'Engineering' LIMIT 1;",
+   "user_prompt": "A new client question just arrived on your desk.\n\nQuestion: List the superheroes from Marvel Comics who have the super power of 'Super Strength'.\n\nDatabase: superhero\n\nSchema (table names, column names, types, primary keys, foreign keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nWork through all three phases now.",
+   "response": "## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\n1. Which column provides the name of the superhero? Assumption: The client wants the descriptive label `superhero_name` rather than the legal `full_name`.\n2. How is \"Marvel Comics\" stored in the database? Assumption: There is a record in the `publisher` table where `publisher_name` exactly matches 'Marvel Comics'.\n3. How is \"Super Strength\" stored in the database? Assumption: There is a record in the `superpower` table where `power_name` exactly matches 'Super Strength'.\n4. Does \"superheroes\" imply a specific alignment (e.g., only those aligned as 'Good')? Assumption: No, it refers to any character in the `superhero` table regardless of their alignment.\n5. Is there a possibility that strength is stored as an attribute rather than a superpower? Assumption: The question explicitly mentions \"super power\", so I should prioritize the `superpower` and `hero_power` tables over `attribute`.\n\nREASONING:\nI need to determine if the client wants common names or legal full names.\nI must verify that the string literals match the database values exactly.\nI need to ensure that \"superhero\" refers to the entity and not a specific alignment.\nI have to map the relationship between heroes, publishers, and powers.\nI must consider if power names are normalized or contain variations.\n\n## PHASE 2 — SCHEMA REVIEW\n1. [CONFIRMED] The `superhero` table contains both `superhero_name` and `full_name`.\n2. [CONFIRMED] The `publisher` table has a `publisher_name` column for filtering.\n3. [CONFIRMED] The `superpower` table has a `power_name` column for filtering.\n4. [REVISED] I see an `alignment` table; while I will not filter by it initially, I must check its values to ensure \"superhero\" isn't a specific alignment category.\n5. [CONFIRMED] The schema provides a dedicated `superpower` table and a junction table `hero_power`, which is the correct path for power-based queries.\n\nREASONING:\nThe schema confirms a normalized structure with junction tables for powers.\nI see two name columns in the superhero table, requiring an identifier precision check.\nThe publisher link is direct via a foreign key on the superhero table.\nPower links are indirect through the hero_power bridge table.\nI need to verify the exact string values for 'Marvel Comics' and 'Super Strength'.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\n1. -- EXISTENCE PROOF: Confirm the exact string used for Marvel Comics in the publisher table.\n   SELECT DISTINCT publisher_name FROM publisher LIMIT 20;\n\n2. -- EXISTENCE PROOF: Confirm the exact string used for Super Strength in the superpower table.\n   SELECT DISTINCT power_name FROM superpower LIMIT 20;\n\n3. -- COLUMN SUITABILITY: Check for nulls in superhero_name to ensure it is a reliable identifier.\n   SELECT COUNT(*) - COUNT(superhero_name) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n4. -- COLUMN SUITABILITY: Check for nulls in publisher_name to ensure reliability of the filter.\n   SELECT COUNT(*) - COUNT(publisher_name) as nulls, COUNT(*) as total FROM publisher LIMIT 1;\n\n5. -- COLUMN SUITABILITY: Check for nulls in power_name to ensure reliability of the filter.\n   SELECT COUNT(*) - COUNT(power_name) as nulls, COUNT(*) as total FROM superpower LIMIT 1;\n\n6. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and publisher (left side).\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5;\n\n7. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and publisher (right side).\n   SELECT DISTINCT id FROM publisher LIMIT 5;\n\n8. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_power (left side).\n   SELECT DISTINCT id FROM superhero LIMIT 5;\n\n9. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_power (right side).\n   SELECT DISTINCT hero_id FROM hero_power LIMIT 5;\n\n10. -- CONNECTIVITY LEMMA: Verify join key overlap between hero_power and superpower (left side).\n    SELECT DISTINCT power_id FROM hero_power LIMIT 5;\n\n11. -- CONNECTIVITY LEMMA: Verify join key overlap between hero_power and superpower (right side).\n    SELECT DISTINCT id FROM superpower LIMIT 5;\n\n12. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\n    SELECT COUNT(*) FROM superhero LIMIT 1;\n\n13. -- SCOPE PROOF: Verify the number of heroes associated with Marvel Comics to ensure the filter is not a no-op or empty.\n    SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'Marvel Comics' LIMIT 1;\n\n14. -- SCOPE PROOF: Verify the number of heroes associated with Super Strength to ensure the filter is not a no-op or empty.\n    SELECT COUNT(*) FROM hero_power JOIN superpower ON hero_power.power_id = superpower.id WHERE superpower.power_name = 'Super Strength' LIMIT 1;\n\n15. -- IDENTIFIER PRECISION: Compare superhero_name and full_name to determine which is more appropriate for the list.\n    SELECT superhero_name, full_name FROM superhero LIMIT 20;\n\n16. -- ANNOTATION LEMMA: Check alignment values to see if \"superhero\" implies a specific alignment filter.\n    SELECT DISTINCT alignment FROM alignment LIMIT 20;",
+   "phase1": "1. Which column provides the name of the superhero? Assumption: The client wants the descriptive label `superhero_name` rather than the legal `full_name`.\n2. How is \"Marvel Comics\" stored in the database? Assumption: There is a record in the `publisher` table where `publisher_name` exactly matches 'Marvel Comics'.\n3. How is \"Super Strength\" stored in the database? Assumption: There is a record in the `superpower` table where `power_name` exactly matches 'Super Strength'.\n4. Does \"superheroes\" imply a specific alignment (e.g., only those aligned as 'Good')? Assumption: No, it refers to any character in the `superhero` table regardless of their alignment.\n5. Is there a possibility that strength is stored as an attribute rather than a superpower? Assumption: The question explicitly mentions \"super power\", so I should prioritize the `superpower` and `hero_power` tables over `attribute`.\n\nREASONING:\nI need to determine if the client wants common names or legal full names.\nI must verify that the string literals match the database values exactly.\nI need to ensure that \"superhero\" refers to the entity and not a specific alignment.\nI have to map the relationship between heroes, publishers, and powers.\nI must consider if power names are normalized or contain variations.",
+   "phase2": "1. [CONFIRMED] The `superhero` table contains both `superhero_name` and `full_name`.\n2. [CONFIRMED] The `publisher` table has a `publisher_name` column for filtering.\n3. [CONFIRMED] The `superpower` table has a `power_name` column for filtering.\n4. [REVISED] I see an `alignment` table; while I will not filter by it initially, I must check its values to ensure \"superhero\" isn't a specific alignment category.\n5. [CONFIRMED] The schema provides a dedicated `superpower` table and a junction table `hero_power`, which is the correct path for power-based queries.\n\nREASONING:\nThe schema confirms a normalized structure with junction tables for powers.\nI see two name columns in the superhero table, requiring an identifier precision check.\nThe publisher link is direct via a foreign key on the superhero table.\nPower links are indirect through the hero_power bridge table.\nI need to verify the exact string values for 'Marvel Comics' and 'Super Strength'.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "EXISTENCE PROOF: Confirm the exact string used for Marvel Comics in the publisher table.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       ""
+      ],
+      [
+       "ABC Studios"
+      ],
+      [
+       "Dark Horse Comics"
+      ],
+      [
+       "DC Comics"
+      ],
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "EXISTENCE PROOF: Confirm the exact string used for Super Strength in the superpower table.",
+     "sql": "SELECT DISTINCT power_name FROM superpower LIMIT 20",
+     "status": "success",
+     "columns": [
+      "power_name"
+     ],
+     "head": [
+      [
+       "Agility"
+      ],
+      [
+       "Accelerated Healing"
+      ],
+      [
+       "Lantern Power Ring"
+      ],
+      [
+       "Dimensional Awareness"
+      ],
+      [
+       "Cold Resistance"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "COLUMN SUITABILITY: Check for nulls in superhero_name to ensure it is a reliable identifier.",
+     "sql": "SELECT COUNT(*) - COUNT(superhero_name) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "COLUMN SUITABILITY: Check for nulls in publisher_name to ensure reliability of the filter.",
+     "sql": "SELECT COUNT(*) - COUNT(publisher_name) as nulls, COUNT(*) as total FROM publisher LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       25
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "COLUMN SUITABILITY: Check for nulls in power_name to ensure reliability of the filter.",
+     "sql": "SELECT COUNT(*) - COUNT(power_name) as nulls, COUNT(*) as total FROM superpower LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       167
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between superhero and publisher (left side).",
+     "sql": "SELECT DISTINCT publisher_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "publisher_id"
+     ],
+     "head": [
+      [
+       13
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       15
+      ],
+      [
+       25
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between superhero and publisher (right side).",
+     "sql": "SELECT DISTINCT id FROM publisher LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_power (left side).",
+     "sql": "SELECT DISTINCT id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_power (right side).",
+     "sql": "SELECT DISTINCT hero_id FROM hero_power LIMIT 5",
+     "status": "success",
+     "columns": [
+      "hero_id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between hero_power and superpower (left side).",
+     "sql": "SELECT DISTINCT power_id FROM hero_power LIMIT 5",
+     "status": "success",
+     "columns": [
+      "power_id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       18
+      ],
+      [
+       26
+      ],
+      [
+       31
+      ],
+      [
+       2
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between hero_power and superpower (right side).",
+     "sql": "SELECT DISTINCT id FROM superpower LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.",
+     "sql": "SELECT COUNT(*) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "SCOPE PROOF: Verify the number of heroes associated with Marvel Comics to ensure the filter is not a no-op or empty.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'Marvel Comics' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       387
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "SCOPE PROOF: Verify the number of heroes associated with Super Strength to ensure the filter is not a no-op or empty.",
+     "sql": "SELECT COUNT(*) FROM hero_power JOIN superpower ON hero_power.power_id = superpower.id WHERE superpower.power_name = 'Super Strength' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       358
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "IDENTIFIER PRECISION: Compare superhero_name and full_name to determine which is more appropriate for the list.",
+     "sql": "SELECT superhero_name, full_name FROM superhero LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "full_name"
+     ],
+     "head": [
+      [
+       "3-D Man",
+       "Charles Chandler"
+      ],
+      [
+       "A-Bomb",
+       "Richard Milhouse Jones"
+      ],
+      [
+       "Abe Sapien",
+       "Abraham Sapien"
+      ],
+      [
+       "Abin Sur",
+       "-"
+      ],
+      [
+       "Abomination",
+       "Emil Blonsky"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "16",
+     "comment": "ANNOTATION LEMMA: Check alignment values to see if \"superhero\" implies a specific alignment filter.",
+     "sql": "SELECT DISTINCT alignment FROM alignment LIMIT 20",
+     "status": "success",
+     "columns": [
+      "alignment"
+     ],
+     "head": [
+      [
+       "Good"
+      ],
+      [
+       "Bad"
+      ],
+      [
+       "Neutral"
+      ],
+      [
+       "N/A"
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    }
+   ],
+   "n_queries": 16,
+   "n_success": 16
+  },
+  "stage2": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Yesterday you worked through a client question in three phases:\nPhase 1 — questions and assumptions written before seeing the schema.\nPhase 2 — schema review, assumptions updated against column profiles.\nPhase 3 — exploratory SQL queries written to investigate the data.\n\nNow the queries have run. You have the results in front of you.\n\nYour job today is three phases:\n\nPHASE 4 — REVISED ASSUMPTIONS\nGo through every assumption you made in Phases 1 and 2. For each one, state what the query results show.\nTag each item with exactly one of:\n  [CONFIRMED]    — a PASSED query directly proves this assumption. Cite the query number.\n  [REVISED]      — results partially support but require adjustment. State what changed and why.\n  [CONTRADICTED] — a query returned zero rows, an error, or unexpected data that disproves this\n                   hypothesis. This is not a failure — it is a proof by contradiction. State clearly\n                   what was disproven and what it implies.\n  [OPEN-VALUE]   — an assumption involves a string filter value that was NEVER confirmed with a\n                   SELECT DISTINCT query. This is an open conjecture — the Director cannot use it.\n                   Phase 5 MUST include a DISTINCT query to resolve it.\n  [WRONG-TABLE]  — query results suggest the data does not live in the assumed table (column doesn't\n                   exist, zero rows where many were expected, data type mismatch). The hypothesis\n                   about which table to use is disproven. Phase 5 must explore the alternative.\n  [LIKE-VS-ENUM] — the analyst used LIKE or a substring match on a name/description column, but\n                   the schema may contain a separate coded or enum column for the same concept\n                   (e.g., filtering by name string when a type_code column exists). Phase 5 MUST\n                   include a DISTINCT query on the potential enum column to check if it provides\n                   a cleaner, exact-match filter.\n\nAfter the tag, write one sentence citing which query result led to this conclusion.\n\nContrapositive test for filters: For each filter in your hypothesis, apply the contrapositive test:\n\"If the question does not explicitly mention this constraint, then it should NOT appear in the WHERE\nclause.\" If Stage 1 added a filter that the question never asked for (e.g. a status filter, an\nactive/inactive check), tag it [CONTRADICTED] with reason: \"contrapositive — question does not\nmention this constraint.\"\n\nPHASE 4b — HYPOTHESIS REVIEW\nWrite a short paragraph (3–5 sentences) answering:\n  1. Does your original hypothesis about how to answer this question still hold?\n     State clearly: YES it holds, NO it needs to change, or PARTIALLY — explain what changed.\n  2. Did the query results reveal anything you did not expect? If so, what?\n  3. What is your updated hypothesis for the final SQL approach?\n\nYour updated hypothesis must name:\n  - The exact table name(s) as they appear in the schema\n  - The exact column name(s) — quoted if they contain spaces\n  - The exact confirmed string value (if a filter is needed) — proven by a DISTINCT query\n  - The exact join path (if tables must be joined) — proven by connectivity lemma queries\n  Vague hypotheses like \"filter by type\" or \"join on the ID column\" are rejected.\n  If any piece is uncertain, tag it [OPEN-VALUE] and resolve it in Phase 5.\n\nPHASE 5 — CONFIRMATION QUERIES\nWrite at least 15 new SQL queries. The system will reject outputs with fewer than 5 — those records\nwill be skipped entirely. These are not exploratory — they are targeted at the gaps, surprises, and\nrevised assumptions from Phases 4 and 4b.\n\nMandatory resolution: Every [OPEN-VALUE] and [WRONG-TABLE] from Phase 4 MUST have a corresponding\nresolution query in Phase 5. An unresolved conjecture is a gap that the Director will fill with\nguesswork — and guesswork is how we get wrong answers.\n  - For [OPEN-VALUE]: run SELECT DISTINCT col FROM table LIMIT 20 to prove the exact value.\n  - For [WRONG-TABLE]: run exploratory queries against the alternative table.\n  - For [LIKE-VS-ENUM]: run SELECT DISTINCT enum_col FROM table LIMIT 20. If the enum column\n    provides exact values that match the question's intent, recommend it over the LIKE filter\n    in your Phase 4b hypothesis update.\n\nDo not repeat queries from Phase 3. Each query must address something new.\n\nSQLite rules — same as before, non-negotiable:\n- Column names with spaces or special characters MUST be double-quoted: \"County Name\"\n- No window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.)\n- Always use LIMIT\n- Do NOT write the final answer query\n\nOutput format for Phase 5 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- RESOLVE [OPEN-VALUE]: Prove what distinct values exist in order_status.\n   SELECT DISTINCT order_status FROM orders LIMIT 20;\n\n2. -- RESOLVE [WRONG-TABLE]: Check if revenue data lives in invoices instead of orders.\n   SELECT COUNT(*), MIN(total), MAX(total) FROM invoices LIMIT 1;\n\n3. -- CONTRAPOSITIVE TEST: Verify results without the assumed 'active' filter.\n   SELECT COUNT(*) FROM customers LIMIT 1;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check if department_code is a cleaner filter than department_name.\n   SELECT DISTINCT department_code, department_name FROM departments LIMIT 20;\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 4 — REVISED ASSUMPTIONS\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\n## PHASE 5 — CONFIRMATION QUERIES",
+   "user_prompt": "The query results are in. Time to review.\n\nQuestion: List the superheroes from Marvel Comics who have the super power of 'Super Strength'.\n\nDatabase: superhero\n\nSchema (same as before — table names, column names, types, join keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\n---\n\nYour Phase 1 — Two Semantic Hypotheses:\n\n1. Which column provides the name of the superhero? Assumption: The client wants the descriptive label `superhero_name` rather than the legal `full_name`.\n2. How is \"Marvel Comics\" stored in the database? Assumption: There is a record in the `publisher` table where `publisher_name` exactly matches 'Marvel Comics'.\n3. How is \"Super Strength\" stored in the database? Assumption: There is a record in the `superpower` table where `power_name` exactly matches 'Super Strength'.\n4. Does \"superheroes\" imply a specific alignment (e.g., only those aligned as 'Good')? Assumption: No, it refers to any character in the `superhero` table regardless of their alignment.\n5. Is there a possibility that strength is stored as an attribute rather than a superpower? Assumption: The question explicitly mentions \"super power\", so I should prioritize the `superpower` and `hero_power` tables over `attribute`.\n\nREASONING:\nI need to determine if the client wants common names or legal full names.\nI must verify that the string literals match the database values exactly.\nI need to ensure that \"superhero\" refers to the entity and not a specific alignment.\nI have to map the relationship between heroes, publishers, and powers.\nI must consider if power names are normalized or contain variations.\n\n---\n\nYour Phase 2 — Schema Deep Dive:\n\n1. [CONFIRMED] The `superhero` table contains both `superhero_name` and `full_name`.\n2. [CONFIRMED] The `publisher` table has a `publisher_name` column for filtering.\n3. [CONFIRMED] The `superpower` table has a `power_name` column for filtering.\n4. [REVISED] I see an `alignment` table; while I will not filter by it initially, I must check its values to ensure \"superhero\" isn't a specific alignment category.\n5. [CONFIRMED] The schema provides a dedicated `superpower` table and a junction table `hero_power`, which is the correct path for power-based queries.\n\nREASONING:\nThe schema confirms a normalized structure with junction tables for powers.\nI see two name columns in the superhero table, requiring an identifier precision check.\nThe publisher link is direct via a foreign key on the superhero table.\nPower links are indirect through the hero_power bridge table.\nI need to verify the exact string values for 'Marvel Comics' and 'Super Strength'.\n\n---\n\nPhase 3 — Exploratory Query Results:\n\n1. -- EXISTENCE PROOF: Confirm the exact string used for Marvel Comics in the publisher table.\n   SELECT DISTINCT publisher_name FROM publisher LIMIT 20\n   Columns: publisher_name\n   ['']\n   ['ABC Studios']\n   ['Dark Horse Comics']\n   ... (20 rows total)\n\n2. -- EXISTENCE PROOF: Confirm the exact string used for Super Strength in the superpower table.\n   SELECT DISTINCT power_name FROM superpower LIMIT 20\n   Columns: power_name\n   ['Agility']\n   ['Accelerated Healing']\n   ['Lantern Power Ring']\n   ... (20 rows total)\n\n3. -- COLUMN SUITABILITY: Check for nulls in superhero_name to ensure it is a reliable identifier.\n   SELECT COUNT(*) - COUNT(superhero_name) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [0, 750]\n\n4. -- COLUMN SUITABILITY: Check for nulls in publisher_name to ensure reliability of the filter.\n   SELECT COUNT(*) - COUNT(publisher_name) as nulls, COUNT(*) as total FROM publisher LIMIT 1\n   Columns: nulls, total\n   [0, 25]\n\n5. -- COLUMN SUITABILITY: Check for nulls in power_name to ensure reliability of the filter.\n   SELECT COUNT(*) - COUNT(power_name) as nulls, COUNT(*) as total FROM superpower LIMIT 1\n   Columns: nulls, total\n   [0, 167]\n\n6. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and publisher (left side).\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5\n   Columns: publisher_id\n   [13]\n   [3]\n   [4]\n   ... (5 rows total)\n\n7. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and publisher (right side).\n   SELECT DISTINCT id FROM publisher LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n8. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_power (left side).\n   SELECT DISTINCT id FROM superhero LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n9. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_power (right side).\n   SELECT DISTINCT hero_id FROM hero_power LIMIT 5\n   Columns: hero_id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n10. -- CONNECTIVITY LEMMA: Verify join key overlap between hero_power and superpower (left side).\n   SELECT DISTINCT power_id FROM hero_power LIMIT 5\n   Columns: power_id\n   [1]\n   [18]\n   [26]\n   ... (5 rows total)\n\n11. -- CONNECTIVITY LEMMA: Verify join key overlap between hero_power and superpower (right side).\n   SELECT DISTINCT id FROM superpower LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n12. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\n   SELECT COUNT(*) FROM superhero LIMIT 1\n   Columns: COUNT(*)\n   [750]\n\n13. -- SCOPE PROOF: Verify the number of heroes associated with Marvel Comics to ensure the filter is not a no-op or empty.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'Marvel Comics' LIMIT 1\n   Columns: COUNT(*)\n   [387]\n\n14. -- SCOPE PROOF: Verify the number of heroes associated with Super Strength to ensure the filter is not a no-op or empty.\n   SELECT COUNT(*) FROM hero_power JOIN superpower ON hero_power.power_id = superpower.id WHERE superpower.power_name = 'Super Strength' LIMIT 1\n   Columns: COUNT(*)\n   [358]\n\n15. -- IDENTIFIER PRECISION: Compare superhero_name and full_name to determine which is more appropriate for the list.\n   SELECT superhero_name, full_name FROM superhero LIMIT 20\n   Columns: superhero_name, full_name\n   ['3-D Man', 'Charles Chandler']\n   ['A-Bomb', 'Richard Milhouse Jones']\n   ['Abe Sapien', 'Abraham Sapien']\n   ... (20 rows total)\n\n16. -- ANNOTATION LEMMA: Check alignment values to see if \"superhero\" implies a specific alignment filter.\n   SELECT DISTINCT alignment FROM alignment LIMIT 20\n   Columns: alignment\n   ['Good']\n   ['Bad']\n   ['Neutral']\n   ... (4 rows total)\n\n---\n\nWork through Phase 4 and Phase 5 now.",
+   "response": "## PHASE 4 — REVISED ASSUMPTIONS\n\nAssumption 1: The client wants the descriptive label `superhero_name` rather than the legal `full_name`. [CONFIRMED] Query 15 shows that `superhero_name` contains common aliases (e.g., '3-D Man') while `full_name` contains legal names (e.g., 'Charles Chandler').\n\nAssumption 2: There is a record in the `publisher` table where `publisher_name` exactly matches 'Marvel Comics'. [OPEN-VALUE] While Query 13 confirms this value exists and returns results, Query 1 was limited to 20 rows and did not provide a full distinct list to ensure no other Marvel variants (e.g., 'Marvel') exist.\n\nAssumption 3: There is a record in the `superpower` table where `power_name` exactly matches 'Super Strength'. [OPEN-VALUE] While Query 14 confirms this value exists and returns results, Query 2 was limited to 20 rows and did not provide a full distinct list to ensure no other strength variants (e.g., 'Strength') exist.\n\nAssumption 4: \"superheroes\" refers to any character in the `superhero` table regardless of their alignment. [CONFIRMED] Contrapositive — question does not mention this constraint.\n\nAssumption 5: Prioritize the `superpower` and `hero_power` tables over `attribute`. [LIKE-VS-ENUM] Query 14 confirms 'Super Strength' exists in the `superpower` table, but the existence of a separate `attribute` table suggests that \"strength\" might be stored as a numeric value or coded attribute rather than a binary power.\n\nPhase 2 Assumption 1: The `superhero` table contains both name columns. [CONFIRMED] Query 15 proves this.\n\nPhase 2 Assumption 2: The `publisher` table has a `publisher_name` column for filtering. [CONFIRMED] Query 4 confirms the column is populated and reliable.\n\nPhase 2 Assumption 3: The `superpower` table has a `power_name` column for filtering. [CONFIRMED] Query 5 confirms the column is populated and reliable.\n\nPhase 2 Assumption 4: Check alignment values to ensure \"superhero\" isn't a specific category. [CONFIRMED] Query 16 shows alignments are 'Good', 'Bad', and 'Neutral'.\n\nPhase 2 Assumption 5: The correct path for power-based queries is `superhero` -> `hero_power` -> `superpower`. [LIKE-VS-ENUM] As noted in Assumption 5, the `attribute` table represents a parallel data path that must be investigated to ensure \"Super Strength\" isn't better defined there.\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\nThe original hypothesis holds PARTIALLY. The identified join paths and basic filters are correct, but I cannot yet guarantee that 'Marvel Comics' and 'Super Strength' are the exclusive string literals used for these entities. Furthermore, the existence of the `attribute` table introduces a risk that \"strength\" is treated as a measurable attribute rather than a discrete superpower.\n\nThe query results did not reveal any major surprises, but they confirmed that the database is highly normalized with distinct tables for every property. The most significant finding is the presence of the EAV-style `attribute` and `hero_attribute` tables, which may overlap with the `superpower` table.\n\nMy updated hypothesis for the final SQL approach:\nI will select `superhero_name` from the `superhero` table. I will join `superhero` to `publisher` on `superhero.publisher_id = publisher.id` and filter by `publisher_name = 'Marvel Comics'`. I will join `superhero` to `hero_power` on `superhero.id = hero_power.hero_id` and then to `superpower` on `hero_power.power_id = superpower.id`, filtering by `power_name = 'Super Strength'`. All string values are currently [OPEN-VALUE] until the full distinct lists are verified in Phase 5.\n\n## PHASE 5 — CONFIRMATION QUERIES\n\n1. -- RESOLVE [OPEN-VALUE]: Verify all variations of Marvel in the publisher table.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel%' LIMIT 20;\n\n2. -- RESOLVE [OPEN-VALUE]: Verify all variations of Strength in the superpower table.\n   SELECT DISTINCT power_name FROM superpower WHERE power_name LIKE '%Strength%' LIMIT 20;\n\n3. -- RESOLVE [LIKE-VS-ENUM]: Check if strength is defined as an attribute name.\n   SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%Strength%' LIMIT 20;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Investigate how strength values are stored in the attribute table.\n   SELECT * FROM attribute WHERE attribute_name LIKE '%Strength%' LIMIT 20;\n\n5. -- RESOLVE [LIKE-VS-ENUM]: Check if heroes with 'Super Strength' power also have a corresponding strength attribute.\n   SELECT s.superhero_name, a.attribute_name, ha.attribute_value \n   FROM superhero s \n   JOIN hero_power hp ON s.id = hp.hero_id \n   JOIN superpower sp ON hp.power_id = sp.id \n   JOIN hero_attribute ha ON s.id = ha.hero_id \n   JOIN attribute a ON ha.attribute_id = a.id \n   WHERE sp.power_name = 'Super Strength' AND a.attribute_name LIKE '%Strength%' LIMIT 20;\n\n6. -- DATA INTEGRITY: Check for case sensitivity variations of the publisher name.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name = 'MARVEL COMICS' LIMIT 1;\n\n7. -- DATA INTEGRITY: Check for leading or trailing whitespace in publisher names.\n   SELECT DISTINCT '\"' || publisher_name || '\"' FROM publisher WHERE publisher_name LIKE '%Marvel%' LIMIT 20;\n\n8. -- DATA INTEGRITY: Check for leading or trailing whitespace in power names.\n   SELECT DISTINCT '\"' || power_name || '\"' FROM superpower WHERE power_name LIKE '%Strength%' LIMIT 20;\n\n9. -- SCOPE CHECK: Verify if any publisher is simply named 'Marvel'.\n   SELECT id, publisher_name FROM publisher WHERE publisher_name = 'Marvel' LIMIT 1;\n\n10. -- SCOPE CHECK: Verify if any superpower is simply named 'Strength'.\n    SELECT id, power_name FROM superpower WHERE power_name = 'Strength' LIMIT 1;\n\n11. -- NULL CHECK: Ensure no heroes are missing publisher assignments.\n    SELECT COUNT(*) FROM superhero WHERE publisher_id IS NULL LIMIT 1;\n\n12. -- NULL CHECK: Ensure the junction table hero_power has no null IDs.\n    SELECT COUNT(*) FROM hero_power WHERE hero_id IS NULL OR power_id IS NULL LIMIT 1;\n\n13. -- DISTRIBUTION CHECK: Compare count of Marvel heroes against total distinct publishers.\n    SELECT (SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher_name = 'Marvel Comics') as marvel_count, (SELECT COUNT(*) FROM publisher) as total_pubs LIMIT 1;\n\n14. -- UNIQUENESS CHECK: Check if any superheroes share the same name but have different IDs.\n    SELECT superhero_name, COUNT(*) FROM superhero GROUP BY superhero_name HAVING COUNT(*) > 1 LIMIT 20;\n\n15. -- CONNECTIVITY CHECK: Verify that every hero in the Marvel set has at least one power assigned.\n    SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id LEFT JOIN hero_power hp ON s.id = hp.hero_id WHERE p.publisher_name = 'Marvel Comics' AND hp.hero_id IS NULL LIMIT 1;",
+   "phase4": "Assumption 1: The client wants the descriptive label `superhero_name` rather than the legal `full_name`. [CONFIRMED] Query 15 shows that `superhero_name` contains common aliases (e.g., '3-D Man') while `full_name` contains legal names (e.g., 'Charles Chandler').\n\nAssumption 2: There is a record in the `publisher` table where `publisher_name` exactly matches 'Marvel Comics'. [OPEN-VALUE] While Query 13 confirms this value exists and returns results, Query 1 was limited to 20 rows and did not provide a full distinct list to ensure no other Marvel variants (e.g., 'Marvel') exist.\n\nAssumption 3: There is a record in the `superpower` table where `power_name` exactly matches 'Super Strength'. [OPEN-VALUE] While Query 14 confirms this value exists and returns results, Query 2 was limited to 20 rows and did not provide a full distinct list to ensure no other strength variants (e.g., 'Strength') exist.\n\nAssumption 4: \"superheroes\" refers to any character in the `superhero` table regardless of their alignment. [CONFIRMED] Contrapositive — question does not mention this constraint.\n\nAssumption 5: Prioritize the `superpower` and `hero_power` tables over `attribute`. [LIKE-VS-ENUM] Query 14 confirms 'Super Strength' exists in the `superpower` table, but the existence of a separate `attribute` table suggests that \"strength\" might be stored as a numeric value or coded attribute rather than a binary power.\n\nPhase 2 Assumption 1: The `superhero` table contains both name columns. [CONFIRMED] Query 15 proves this.\n\nPhase 2 Assumption 2: The `publisher` table has a `publisher_name` column for filtering. [CONFIRMED] Query 4 confirms the column is populated and reliable.\n\nPhase 2 Assumption 3: The `superpower` table has a `power_name` column for filtering. [CONFIRMED] Query 5 confirms the column is populated and reliable.\n\nPhase 2 Assumption 4: Check alignment values to ensure \"superhero\" isn't a specific category. [CONFIRMED] Query 16 shows alignments are 'Good', 'Bad', and 'Neutral'.\n\nPhase 2 Assumption 5: The correct path for power-based queries is `superhero` -> `hero_power` -> `superpower`. [LIKE-VS-ENUM] As noted in Assumption 5, the `attribute` table represents a parallel data path that must be investigated to ensure \"Super Strength\" isn't better defined there.",
+   "phase4b": "The original hypothesis holds PARTIALLY. The identified join paths and basic filters are correct, but I cannot yet guarantee that 'Marvel Comics' and 'Super Strength' are the exclusive string literals used for these entities. Furthermore, the existence of the `attribute` table introduces a risk that \"strength\" is treated as a measurable attribute rather than a discrete superpower.\n\nThe query results did not reveal any major surprises, but they confirmed that the database is highly normalized with distinct tables for every property. The most significant finding is the presence of the EAV-style `attribute` and `hero_attribute` tables, which may overlap with the `superpower` table.\n\nMy updated hypothesis for the final SQL approach:\nI will select `superhero_name` from the `superhero` table. I will join `superhero` to `publisher` on `superhero.publisher_id = publisher.id` and filter by `publisher_name = 'Marvel Comics'`. I will join `superhero` to `hero_power` on `superhero.id = hero_power.hero_id` and then to `superpower` on `hero_power.power_id = superpower.id`, filtering by `power_name = 'Super Strength'`. All string values are currently [OPEN-VALUE] until the full distinct lists are verified in Phase 5.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "RESOLVE [OPEN-VALUE]: Verify all variations of Marvel in the publisher table.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "RESOLVE [OPEN-VALUE]: Verify all variations of Strength in the superpower table.",
+     "sql": "SELECT DISTINCT power_name FROM superpower WHERE power_name LIKE '%Strength%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "power_name"
+     ],
+     "head": [
+      [
+       "Super Strength"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Check if strength is defined as an attribute name.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%Strength%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [
+      [
+       "Strength"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Investigate how strength values are stored in the attribute table.",
+     "sql": "SELECT * FROM attribute WHERE attribute_name LIKE '%Strength%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "id",
+      "attribute_name"
+     ],
+     "head": [
+      [
+       2,
+       "Strength"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Check if heroes with 'Super Strength' power also have a corresponding strength attribute.",
+     "sql": "SELECT s.superhero_name, a.attribute_name, ha.attribute_value \n   FROM superhero s \n   JOIN hero_power hp ON s.id = hp.hero_id \n   JOIN superpower sp ON hp.power_id = sp.id \n   JOIN hero_attribute ha ON s.id = ha.hero_id \n   JOIN attribute a ON ha.attribute_id = a.id \n   WHERE sp.power_name = 'Super Strength' AND a.attribute_name LIKE '%Strength%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "attribute_name",
+      "attribute_value"
+     ],
+     "head": [
+      [
+       "3-D Man",
+       "Strength",
+       35
+      ],
+      [
+       "A-Bomb",
+       "Strength",
+       100
+      ],
+      [
+       "Abe Sapien",
+       "Strength",
+       30
+      ],
+      [
+       "Abomination",
+       "Strength",
+       80
+      ],
+      [
+       "Abraxas",
+       "Strength",
+       100
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "DATA INTEGRITY: Check for case sensitivity variations of the publisher name.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name = 'MARVEL COMICS' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "DATA INTEGRITY: Check for leading or trailing whitespace in publisher names.",
+     "sql": "SELECT DISTINCT '\"' || publisher_name || '\"' FROM publisher WHERE publisher_name LIKE '%Marvel%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "'\"' || publisher_name || '\"'"
+     ],
+     "head": [
+      [
+       "\"Marvel Comics\""
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "DATA INTEGRITY: Check for leading or trailing whitespace in power names.",
+     "sql": "SELECT DISTINCT '\"' || power_name || '\"' FROM superpower WHERE power_name LIKE '%Strength%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "'\"' || power_name || '\"'"
+     ],
+     "head": [
+      [
+       "\"Super Strength\""
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "SCOPE CHECK: Verify if any publisher is simply named 'Marvel'.",
+     "sql": "SELECT id, publisher_name FROM publisher WHERE publisher_name = 'Marvel' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "id",
+      "publisher_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "SCOPE CHECK: Verify if any superpower is simply named 'Strength'.",
+     "sql": "SELECT id, power_name FROM superpower WHERE power_name = 'Strength' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "id",
+      "power_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "NULL CHECK: Ensure no heroes are missing publisher assignments.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       3
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "NULL CHECK: Ensure the junction table hero_power has no null IDs.",
+     "sql": "SELECT COUNT(*) FROM hero_power WHERE hero_id IS NULL OR power_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "DISTRIBUTION CHECK: Compare count of Marvel heroes against total distinct publishers.",
+     "sql": "SELECT (SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher_name = 'Marvel Comics') as marvel_count, (SELECT COUNT(*) FROM publisher) as total_pubs LIMIT 1",
+     "status": "success",
+     "columns": [
+      "marvel_count",
+      "total_pubs"
+     ],
+     "head": [
+      [
+       387,
+       25
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "UNIQUENESS CHECK: Check if any superheroes share the same name but have different IDs.",
+     "sql": "SELECT superhero_name, COUNT(*) FROM superhero GROUP BY superhero_name HAVING COUNT(*) > 1 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       "Angel",
+       2
+      ],
+      [
+       "Ares",
+       2
+      ],
+      [
+       "Atlas",
+       4
+      ],
+      [
+       "Captain Marvel",
+       2
+      ],
+      [
+       "Chameleon",
+       2
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "CONNECTIVITY CHECK: Verify that every hero in the Marvel set has at least one power assigned.",
+     "sql": "SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id LEFT JOIN hero_power hp ON s.id = hp.hero_id WHERE p.publisher_name = 'Marvel Comics' AND hp.hero_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       50
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage3": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "\nYou are the director. You are reviewing the work of a junior analyst who investigated a client\nquestion by running SQL queries against the actual database.\n\nYour analyst is good but not infallible. They may have explored the right tables or the wrong ones.\nWhat they give you is raw data from the database — what columns exist, what values appeared, which\njoins worked, which failed. Your job is to use that evidence to write the final SQL.\n\nRules:\n  1. Use the analyst's query results as your evidence base. Column names, table names, join keys,\n     and filter values from PASSED queries are confirmed to exist in the database — use them exactly\n     as they appeared. Queries that FAILED with \"no such column: X\" confirm that X does not exist.\n  2. The analyst may have queried the wrong table or missed a relevant one. Consider all tables\n     the analyst touched, but also re-read the schema to check if a better path exists.\n  3. Write 5 candidates. Each candidate is your best complete answer under a different\n     interpretation of what the question is asking. The interpretations should differ in\n     meaningful ways: which tables to query, which columns to SELECT, which filters to apply,\n     how to aggregate, or what the question fundamentally means.\n\n       C1 — your primary interpretation: the answer you think is most likely correct based on\n             the question text, evidence, and analyst findings. This should be a complete,\n             production-quality query.\n       C2 — second interpretation: a structurally different reading. Perhaps a different table,\n             a different join path, or a different understanding of which column answers the\n             question (e.g., returning an ID instead of a name, or COUNT instead of a list).\n       C3 — third interpretation: another distinct reading. Could differ in aggregation logic,\n             filter scope, or SELECT shape (e.g., including the metric alongside the result).\n       C4 — fourth interpretation: explores a less obvious reading. Different grouping, an\n             additional condition implied by context, or a different column that could answer\n             the same question.\n       C5 — fifth interpretation, most elaborate: if the question could require comparing a\n             value to an aggregate (average, threshold, rank), use Nested Isolation here:\n               Inner query: compute the aggregate (AVG, MAX, COUNT, etc.)\n               Outer query: filter or join against that aggregate result\n             Pattern: SELECT col FROM t WHERE val > (SELECT AVG(val) FROM t)\n             If no aggregate comparison applies, use the most structurally different approach\n             you can justify.\n\n     Each candidate must be a complete, standalone, executable query — not a fragment or\n     simplification. Five variations of the same WHERE clause with minor tweaks is not five\n     interpretations.\n  4. Each candidate must be a complete, standalone, executable SQL query.\n  5. Different interpretations may reasonably differ in SELECT shape. For example, one\n     interpretation might return only COUNT(*), another might return COUNT(*) with the GROUP BY\n     column, and another might return the actual rows. Let each interpretation dictate its own\n     SELECT — do not artificially restrict columns across all five candidates.\n  6. Use LIMIT only when the question asks for a specific number of results (\"top 3\", \"the one\n     with the highest\"). If the question asks for a list without a count, do not use LIMIT.\n  7. You may use window functions (RANK, ROW_NUMBER, etc.) when the question requires ranking\n     within a group or ordering within a partition.\n\n  Proof-by-Cases principle:\n    C1-C5 must represent genuinely different interpretations of the question. If the correct\n    answer exists, at least one interpretation MUST capture it. Each must be structurally\n    distinct — different tables, joins, groupings, SELECT columns, or filter logic.\n\n  Exclusion Principle:\n    Every element in your SQL must be justified by either:\n      (a) the question text explicitly requiring it, or\n      (b) a PASSED query from the analyst's work confirming it exists and is relevant.\n    Do not add columns \"for context\", filters \"for safety\" (IS NOT NULL, status checks),\n    or joins \"just in case\". Unjustified additions are unproven conjectures — they narrow\n    or widen the result set beyond what was asked and cause failures.\n\n  Evidence hierarchy:\n    - PASSED queries with non-zero rows: proven facts. Use the exact column names, table\n      names, and values as they appeared.\n    - FAILED queries (errors): proven non-existence. The column or table does NOT exist\n      in that form. Do not use it.\n    - Zero-row PASSED queries: the filter combination is valid syntax but matches nothing.\n      Consider whether the filter is too restrictive.\n    - [OPEN-VALUE] / [WRONG-TABLE] tags from the analyst: unresolved conjectures. Prefer\n      alternatives that were actually confirmed.\n\nSQLite rules — non-negotiable:\n  - Column names with spaces or special characters MUST be double-quoted: \"Order Date\"\n  - Every query must begin with SELECT. Never use WITH ... AS (CTEs).\n  - Use whatever SQL structure best serves each interpretation: subqueries, window functions,\n    derived tables, or flat SELECT/JOIN/GROUP BY. The only constraint is correctness.\n  - Any query that joins two or more tables MUST assign a short alias to every table\n    (e.g. FROM movies m JOIN ratings r ON m.movie_id = r.movie_id) and MUST qualify every\n    column reference with its alias (e.g. m.movie_title, not just movie_title). Unqualified\n    column references in multi-table queries are ambiguous and will cause runtime errors.\n\nOutput format:\n## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: [what this reading assumes about the question]\nSELECT t1.col FROM t1 JOIN t2 ON t1.id = t2.fk WHERE t1.filter = value\n\n2. -- Second interpretation: [how this differs from C1]\nSELECT t1.id FROM t1 WHERE t1.different_filter = value\n\n3. -- Third interpretation: [what this captures that C1-C2 miss]\nSELECT t1.col, COUNT(*) FROM t1 GROUP BY t1.col\n\n4. -- Fourth interpretation: [alternative approach]\nSELECT t1.col FROM t1 JOIN t3 ON t1.id = t3.fk WHERE t3.filter = value\n\n5. -- Fifth interpretation: [most elaborate or aggregate-comparison approach]\nSELECT t1.col FROM t1 WHERE t1.val > (SELECT AVG(t2.val) FROM t1 t2)\n\nFormat rules:\n  - Numbered 1 through 5 exactly.\n  - Candidate 1 MUST start with \"1. --\" on its own line — never output the first candidate\n    as raw unnumbered SQL.\n  - Comment on same line as the number, starting with --.\n  - SQL starts on the next line, beginning with SELECT.\n  - Blank line between candidates.\n  - No markdown code fences. No bold. No extra headers.\n",
+   "user_prompt": "Question: List the superheroes from Marvel Comics who have the super power of 'Super Strength'.\n\nDatabase: superhero\n\n---\nANALYST WORK PRODUCT\n\nStage 1 — What was checked and what was found:\n1. Checked: EXISTENCE PROOF: Confirm the exact string used for Marvel Comics in the publisher table.\n   Result: publisher_name: \n   (20 rows total)\n\n2. Checked: EXISTENCE PROOF: Confirm the exact string used for Super Strength in the superpower table.\n   Result: power_name: Agility\n   (20 rows total)\n\n3. Checked: COLUMN SUITABILITY: Check for nulls in superhero_name to ensure it is a reliable identifier.\n   Result: nulls: 0 | total: 750\n\n4. Checked: COLUMN SUITABILITY: Check for nulls in publisher_name to ensure reliability of the filter.\n   Result: nulls: 0 | total: 25\n\n5. Checked: COLUMN SUITABILITY: Check for nulls in power_name to ensure reliability of the filter.\n   Result: nulls: 0 | total: 167\n\n6. Checked: CONNECTIVITY LEMMA: Verify join key overlap between superhero and publisher (left side).\n   Result: publisher_id: 13\n   (5 rows total)\n\n7. Checked: CONNECTIVITY LEMMA: Verify join key overlap between superhero and publisher (right side).\n   Result: id: 1\n   (5 rows total)\n\n8. Checked: CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_power (left side).\n   Result: id: 1\n   (5 rows total)\n\n9. Checked: CONNECTIVITY LEMMA: Verify join key overlap between superhero and hero_power (right side).\n   Result: hero_id: 1\n   (5 rows total)\n\n10. Checked: CONNECTIVITY LEMMA: Verify join key overlap between hero_power and superpower (left side).\n   Result: power_id: 1\n   (5 rows total)\n\n11. Checked: CONNECTIVITY LEMMA: Verify join key overlap between hero_power and superpower (right side).\n   Result: id: 1\n   (5 rows total)\n\n12. Checked: AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\n   Result: COUNT(*): 750\n\n13. Checked: SCOPE PROOF: Verify the number of heroes associated with Marvel Comics to ensure the filter is not a no-op or empty.\n   Result: COUNT(*): 387\n\n14. Checked: SCOPE PROOF: Verify the number of heroes associated with Super Strength to ensure the filter is not a no-op or empty.\n   Result: COUNT(*): 358\n\n15. Checked: IDENTIFIER PRECISION: Compare superhero_name and full_name to determine which is more appropriate for the list.\n   Result: superhero_name: 3-D Man | full_name: Charles Chandler\n   (20 rows total)\n\n16. Checked: ANNOTATION LEMMA: Check alignment values to see if \"superhero\" implies a specific alignment filter.\n   Result: alignment: Good\n   (4 rows total)\n\n\nStage 2 — Hypothesis verdict (Phase 4):\nAssumption 1: The client wants the descriptive label `superhero_name` rather than the legal `full_name`. [CONFIRMED] Query 15 shows that `superhero_name` contains common aliases (e.g., '3-D Man') while `full_name` contains legal names (e.g., 'Charles Chandler').\n\nAssumption 2: There is a record in the `publisher` table where `publisher_name` exactly matches 'Marvel Comics'. [OPEN-VALUE] While Query 13 confirms this value exists and returns results, Query 1 was limited to 20 rows and did not provide a full distinct list to ensure no other Marvel variants (e.g., 'Marvel') exist.\n\nAssumption 3: There is a record in the `superpower` table where `power_name` exactly matches 'Super Strength'. [OPEN-VALUE] While Query 14 confirms this value exists and returns results, Query 2 was limited to 20 rows and did not provide a full distinct list to ensure no other strength variants (e.g., 'Strength') exist.\n\nAssumption 4: \"superheroes\" refers to any character in the `superhero` table regardless of their alignment. [CONFIRMED] Contrapositive — question does not mention this constraint.\n\nAssumption 5: Prioritize the `superpower` and `hero_power` tables over `attribute`. [LIKE-VS-ENUM] Query 14 confirms 'Super Strength' exists in the `superpower` table, but the existence of a separate `attribute` table suggests that \"strength\" might be stored as a numeric value or coded attribute rather than a binary power.\n\nPhase 2 Assumption 1: The `superhero` table contains both name columns. [CONFIRMED] Query 15 proves this.\n\nPhase 2 Assumption 2: The `publisher` table has a `publisher_name` column for filtering. [CONFIRMED] Query 4 confirms the column is populated and reliable.\n\nPhase 2 Assumption 3: The `superpower` table has a `power_name` column for filtering. [CONFIRMED] Query 5 confirms the column is populated and reliable.\n\nPhase 2 Assumption 4: Check alignment values to ensure \"superhero\" isn't a specific category. [CONFIRMED] Query 16 shows alignments are 'Good', 'Bad', and 'Neutral'.\n\nPhase 2 Assumption 5: The correct path for power-based queries is `superhero` -> `hero_power` -> `superpower`. [LIKE-VS-ENUM] As noted in Assumption 5, the `attribute` table represents a parallel data path that must be investigated to ensure \"Super Strength\" isn't better defined there.\n\nStage 2 — Winning hypothesis (Phase 4b):\nThe original hypothesis holds PARTIALLY. The identified join paths and basic filters are correct, but I cannot yet guarantee that 'Marvel Comics' and 'Super Strength' are the exclusive string literals used for these entities. Furthermore, the existence of the `attribute` table introduces a risk that \"strength\" is treated as a measurable attribute rather than a discrete superpower.\n\nThe query results did not reveal any major surprises, but they confirmed that the database is highly normalized with distinct tables for every property. The most significant finding is the presence of the EAV-style `attribute` and `hero_attribute` tables, which may overlap with the `superpower` table.\n\nMy updated hypothesis for the final SQL approach:\nI will select `superhero_name` from the `superhero` table. I will join `superhero` to `publisher` on `superhero.publisher_id = publisher.id` and filter by `publisher_name = 'Marvel Comics'`. I will join `superhero` to `hero_power` on `superhero.id = hero_power.hero_id` and then to `superpower` on `hero_power.power_id = superpower.id`, filtering by `power_name = 'Super Strength'`. All string values are currently [OPEN-VALUE] until the full distinct lists are verified in Phase 5.\n\nStage 2 — Confirmation checks and what was found:\n1. Checked: RESOLVE [OPEN-VALUE]: Verify all variations of Marvel in the publisher table.\n   Result: publisher_name: Marvel Comics\n\n2. Checked: RESOLVE [OPEN-VALUE]: Verify all variations of Strength in the superpower table.\n   Result: power_name: Super Strength\n\n3. Checked: RESOLVE [LIKE-VS-ENUM]: Check if strength is defined as an attribute name.\n   Result: attribute_name: Strength\n\n4. Checked: RESOLVE [LIKE-VS-ENUM]: Investigate how strength values are stored in the attribute table.\n   Result: id: 2 | attribute_name: Strength\n\n5. Checked: RESOLVE [LIKE-VS-ENUM]: Check if heroes with 'Super Strength' power also have a corresponding strength attribute.\n   Result: superhero_name: 3-D Man | attribute_name: Strength | attribute_value: 35\n   (20 rows total)\n\n6. Checked: DATA INTEGRITY: Check for case sensitivity variations of the publisher name.\n   Result: (no rows returned)\n\n7. Checked: DATA INTEGRITY: Check for leading or trailing whitespace in publisher names.\n   Result: '\"' || publisher_name || '\"': \"Marvel Comics\"\n\n8. Checked: DATA INTEGRITY: Check for leading or trailing whitespace in power names.\n   Result: '\"' || power_name || '\"': \"Super Strength\"\n\n9. Checked: SCOPE CHECK: Verify if any publisher is simply named 'Marvel'.\n   Result: (no rows returned)\n\n10. Checked: SCOPE CHECK: Verify if any superpower is simply named 'Strength'.\n   Result: (no rows returned)\n\n11. Checked: NULL CHECK: Ensure no heroes are missing publisher assignments.\n   Result: COUNT(*): 3\n\n12. Checked: NULL CHECK: Ensure the junction table hero_power has no null IDs.\n   Result: COUNT(*): 0\n\n13. Checked: DISTRIBUTION CHECK: Compare count of Marvel heroes against total distinct publishers.\n   Result: marvel_count: 387 | total_pubs: 25\n\n14. Checked: UNIQUENESS CHECK: Check if any superheroes share the same name but have different IDs.\n   Result: superhero_name: Angel | COUNT(*): 2\n   (5 rows total)\n\n15. Checked: CONNECTIVITY CHECK: Verify that every hero in the Marvel set has at least one power assigned.\n   Result: COUNT(*): 50\n\n\n---\nWrite 5 candidate SQL queries sweeping from the least to the most work required to answer the question.",
+   "response": "## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: The user wants a list of superhero names from Marvel Comics who possess the 'Super Strength' power, using the most direct join path.\nSELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' AND sp.power_name = 'Super Strength'\n\n2. -- Second interpretation: The user wants the legal full names of these superheroes rather than their aliases/superhero names.\nSELECT s.full_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' AND sp.power_name = 'Super Strength'\n\n3. -- Third interpretation: Since the analyst found that some superhero names are not unique (e.g., 'Angel'), this returns a distinct list of names to avoid duplicates.\nSELECT DISTINCT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' AND sp.power_name = 'Super Strength'\n\n4. -- Fourth interpretation: Uses subqueries instead of joins to isolate the filters for publisher and power, which can be more performant or logically distinct in some database engines.\nSELECT s.superhero_name\nFROM superhero s\nWHERE s.publisher_id IN (\n    SELECT p.id \n    FROM publisher p \n    WHERE p.publisher_name = 'Marvel Comics'\n)\nAND s.id IN (\n    SELECT hp.hero_id \n    FROM hero_power hp \n    JOIN superpower sp ON hp.power_id = sp.id \n    WHERE sp.power_name = 'Super Strength'\n)\n\n5. -- Fifth interpretation: Most elaborate approach using Nested Isolation; lists Marvel superheroes with 'Super Strength' who also possess a higher-than-average number of superpowers across the entire database.\nSELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' \nAND sp.power_name = 'Super Strength'\nAND (\n    SELECT COUNT(*) \n    FROM hero_power hp2 \n    WHERE hp2.hero_id = s.id\n) > (\n    SELECT AVG(power_count) \n    FROM (\n        SELECT COUNT(*) AS power_count \n        FROM hero_power \n        GROUP BY hero_id\n    )\n)",
+   "candidates": [
+    {
+     "n": 1,
+     "comment": "Primary interpretation: The user wants a list of superhero names from Marvel Comics who possess the 'Super Strength' power, using the most direct join path.",
+     "sql": "SELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' AND sp.power_name = 'Super Strength'",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "rows": [
+      [
+       "3-D Man"
+      ],
+      [
+       "A-Bomb"
+      ],
+      [
+       "Abomination"
+      ],
+      [
+       "Abraxas"
+      ],
+      [
+       "Absorbing Man"
+      ],
+      [
+       "Agent Zero"
+      ],
+      [
+       "Air-Walker"
+      ],
+      [
+       "Ajax"
+      ],
+      [
+       "Angel"
+      ],
+      [
+       "Angel Dust"
+      ],
+      [
+       "Annihilus"
+      ],
+      [
+       "Ant-Man II"
+      ],
+      [
+       "Anti-Venom"
+      ],
+      [
+       "Apocalypse"
+      ],
+      [
+       "Arachne"
+      ],
+      [
+       "Archangel"
+      ],
+      [
+       "Arclight"
+      ],
+      [
+       "Ardina"
+      ],
+      [
+       "Ares"
+      ],
+      [
+       "Armor"
+      ],
+      [
+       "Atlas"
+      ],
+      [
+       "Atlas"
+      ],
+      [
+       "Bantam"
+      ],
+      [
+       "Battlestar"
+      ],
+      [
+       "Beast"
+      ],
+      [
+       "Beta Ray Bill"
+      ],
+      [
+       "Beyonder"
+      ],
+      [
+       "Binary"
+      ],
+      [
+       "Bird-Man"
+      ],
+      [
+       "Bishop"
+      ],
+      [
+       "Black Bolt"
+      ],
+      [
+       "Black Cat"
+      ],
+      [
+       "Blackout"
+      ],
+      [
+       "Blackwulf"
+      ],
+      [
+       "Blade"
+      ],
+      [
+       "Blob"
+      ],
+      [
+       "Bloodaxe"
+      ],
+      [
+       "Bloodwraith"
+      ],
+      [
+       "Cable"
+      ],
+      [
+       "Callisto"
+      ],
+      [
+       "Captain Britain"
+      ],
+      [
+       "Captain Marvel"
+      ],
+      [
+       "Captain Planet"
+      ],
+      [
+       "Carnage"
+      ],
+      [
+       "Cat"
+      ],
+      [
+       "Colossus"
+      ],
+      [
+       "Cottonmouth"
+      ],
+      [
+       "Crimson Dynamo"
+      ],
+      [
+       "Crystal"
+      ],
+      [
+       "Deathlok"
+      ]
+     ],
+     "row_count": 201,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 2,
+     "comment": "Second interpretation: The user wants the legal full names of these superheroes rather than their aliases/superhero names.",
+     "sql": "SELECT s.full_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' AND sp.power_name = 'Super Strength'",
+     "status": "success",
+     "columns": [
+      "full_name"
+     ],
+     "rows": [
+      [
+       "Charles Chandler"
+      ],
+      [
+       "Richard Milhouse Jones"
+      ],
+      [
+       "Emil Blonsky"
+      ],
+      [
+       "Abraxas"
+      ],
+      [
+       null
+      ],
+      [
+       "Christoph Nord"
+      ],
+      [
+       "Gabriel Lan"
+      ],
+      [
+       null
+      ],
+      [
+       "Liam"
+      ],
+      [
+       "Christina"
+      ],
+      [
+       "Annihilus"
+      ],
+      [
+       "Scott Lang"
+      ],
+      [
+       "Edward Charles Allan Brock"
+      ],
+      [
+       "En Sabah Nur"
+      ],
+      [
+       "Julia Carpenter"
+      ],
+      [
+       "Warren Kenneth Worthington III"
+      ],
+      [
+       "Philippa Sontag"
+      ],
+      [
+       "-"
+      ],
+      [
+       "-"
+      ],
+      [
+       "Hisako Ichiki"
+      ],
+      [
+       "-"
+      ],
+      [
+       "Erik Stephan Josten"
+      ],
+      [
+       "Roberto Velasquez"
+      ],
+      [
+       "Lemar Hoskins"
+      ],
+      [
+       "Henry Philip McCoy"
+      ],
+      [
+       "Beta Ray Bill (translation of his Korbinite name)"
+      ],
+      [
+       "-"
+      ],
+      [
+       "Carol Susan Jane Danvers"
+      ],
+      [
+       null
+      ],
+      [
+       "Lucas Bishop"
+      ],
+      [
+       "Blackagar Boltagon"
+      ],
+      [
+       "Felicia Hardy"
+      ],
+      [
+       "-"
+      ],
+      [
+       "Lucian"
+      ],
+      [
+       "Eric Brooks"
+      ],
+      [
+       "Frederick J. Dukes"
+      ],
+      [
+       "Jackie Lukus"
+      ],
+      [
+       "Sean Dolan"
+      ],
+      [
+       "Nathan Christopher Charles Summers Dayspring"
+      ],
+      [
+       "Callisto"
+      ],
+      [
+       "Brian Braddock"
+      ],
+      [
+       null
+      ],
+      [
+       "-"
+      ],
+      [
+       null
+      ],
+      [
+       "Shirlee Bryant"
+      ],
+      [
+       "Piotr Nikolaievitch Rasputin"
+      ],
+      [
+       "Burchell Clemens"
+      ],
+      [
+       "Anton Vanko"
+      ],
+      [
+       "Crystallia Amaquelin Maximoff"
+      ],
+      [
+       "Luther Manning"
+      ]
+     ],
+     "row_count": 201,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 3,
+     "comment": "Third interpretation: Since the analyst found that some superhero names are not unique (e.g., 'Angel'), this returns a distinct list of names to avoid duplicates.",
+     "sql": "SELECT DISTINCT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' AND sp.power_name = 'Super Strength'",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "rows": [
+      [
+       "3-D Man"
+      ],
+      [
+       "A-Bomb"
+      ],
+      [
+       "Abomination"
+      ],
+      [
+       "Abraxas"
+      ],
+      [
+       "Absorbing Man"
+      ],
+      [
+       "Agent Zero"
+      ],
+      [
+       "Air-Walker"
+      ],
+      [
+       "Ajax"
+      ],
+      [
+       "Angel"
+      ],
+      [
+       "Angel Dust"
+      ],
+      [
+       "Annihilus"
+      ],
+      [
+       "Ant-Man II"
+      ],
+      [
+       "Anti-Venom"
+      ],
+      [
+       "Apocalypse"
+      ],
+      [
+       "Arachne"
+      ],
+      [
+       "Archangel"
+      ],
+      [
+       "Arclight"
+      ],
+      [
+       "Ardina"
+      ],
+      [
+       "Ares"
+      ],
+      [
+       "Armor"
+      ],
+      [
+       "Atlas"
+      ],
+      [
+       "Bantam"
+      ],
+      [
+       "Battlestar"
+      ],
+      [
+       "Beast"
+      ],
+      [
+       "Beta Ray Bill"
+      ],
+      [
+       "Beyonder"
+      ],
+      [
+       "Binary"
+      ],
+      [
+       "Bird-Man"
+      ],
+      [
+       "Bishop"
+      ],
+      [
+       "Black Bolt"
+      ],
+      [
+       "Black Cat"
+      ],
+      [
+       "Blackout"
+      ],
+      [
+       "Blackwulf"
+      ],
+      [
+       "Blade"
+      ],
+      [
+       "Blob"
+      ],
+      [
+       "Bloodaxe"
+      ],
+      [
+       "Bloodwraith"
+      ],
+      [
+       "Cable"
+      ],
+      [
+       "Callisto"
+      ],
+      [
+       "Captain Britain"
+      ],
+      [
+       "Captain Marvel"
+      ],
+      [
+       "Captain Planet"
+      ],
+      [
+       "Carnage"
+      ],
+      [
+       "Cat"
+      ],
+      [
+       "Colossus"
+      ],
+      [
+       "Cottonmouth"
+      ],
+      [
+       "Crimson Dynamo"
+      ],
+      [
+       "Crystal"
+      ],
+      [
+       "Deathlok"
+      ],
+      [
+       "Demogoblin"
+      ]
+     ],
+     "row_count": 200,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 4,
+     "comment": "Fourth interpretation: Uses subqueries instead of joins to isolate the filters for publisher and power, which can be more performant or logically distinct in some database engines.",
+     "sql": "SELECT s.superhero_name\nFROM superhero s\nWHERE s.publisher_id IN (\n    SELECT p.id \n    FROM publisher p \n    WHERE p.publisher_name = 'Marvel Comics'\n)\nAND s.id IN (\n    SELECT hp.hero_id \n    FROM hero_power hp \n    JOIN superpower sp ON hp.power_id = sp.id \n    WHERE sp.power_name = 'Super Strength'\n)",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "rows": [
+      [
+       "3-D Man"
+      ],
+      [
+       "A-Bomb"
+      ],
+      [
+       "Abomination"
+      ],
+      [
+       "Abraxas"
+      ],
+      [
+       "Absorbing Man"
+      ],
+      [
+       "Agent Zero"
+      ],
+      [
+       "Air-Walker"
+      ],
+      [
+       "Ajax"
+      ],
+      [
+       "Angel"
+      ],
+      [
+       "Angel Dust"
+      ],
+      [
+       "Annihilus"
+      ],
+      [
+       "Ant-Man II"
+      ],
+      [
+       "Anti-Venom"
+      ],
+      [
+       "Apocalypse"
+      ],
+      [
+       "Arachne"
+      ],
+      [
+       "Archangel"
+      ],
+      [
+       "Arclight"
+      ],
+      [
+       "Ardina"
+      ],
+      [
+       "Ares"
+      ],
+      [
+       "Armor"
+      ],
+      [
+       "Atlas"
+      ],
+      [
+       "Atlas"
+      ],
+      [
+       "Bantam"
+      ],
+      [
+       "Battlestar"
+      ],
+      [
+       "Beast"
+      ],
+      [
+       "Beta Ray Bill"
+      ],
+      [
+       "Beyonder"
+      ],
+      [
+       "Binary"
+      ],
+      [
+       "Bird-Man"
+      ],
+      [
+       "Bishop"
+      ],
+      [
+       "Black Bolt"
+      ],
+      [
+       "Black Cat"
+      ],
+      [
+       "Blackout"
+      ],
+      [
+       "Blackwulf"
+      ],
+      [
+       "Blade"
+      ],
+      [
+       "Blob"
+      ],
+      [
+       "Bloodaxe"
+      ],
+      [
+       "Bloodwraith"
+      ],
+      [
+       "Cable"
+      ],
+      [
+       "Callisto"
+      ],
+      [
+       "Captain Britain"
+      ],
+      [
+       "Captain Marvel"
+      ],
+      [
+       "Captain Planet"
+      ],
+      [
+       "Carnage"
+      ],
+      [
+       "Cat"
+      ],
+      [
+       "Colossus"
+      ],
+      [
+       "Cottonmouth"
+      ],
+      [
+       "Crimson Dynamo"
+      ],
+      [
+       "Crystal"
+      ],
+      [
+       "Deathlok"
+      ]
+     ],
+     "row_count": 201,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 5,
+     "comment": "Fifth interpretation: Most elaborate approach using Nested Isolation; lists Marvel superheroes with 'Super Strength' who also possess a higher-than-average number of superpowers across the entire database.",
+     "sql": "SELECT s.superhero_name\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN hero_power hp ON s.id = hp.hero_id\nJOIN superpower sp ON hp.power_id = sp.id\nWHERE p.publisher_name = 'Marvel Comics' \nAND sp.power_name = 'Super Strength'\nAND (\n    SELECT COUNT(*) \n    FROM hero_power hp2 \n    WHERE hp2.hero_id = s.id\n) > (\n    SELECT AVG(power_count) \n    FROM (\n        SELECT COUNT(*) AS power_count \n        FROM hero_power \n        GROUP BY hero_id\n    )\n)",
+     "status": "success",
+     "columns": [
+      "superhero_name"
+     ],
+     "rows": [
+      [
+       "Abraxas"
+      ],
+      [
+       "Absorbing Man"
+      ],
+      [
+       "Angel"
+      ],
+      [
+       "Ant-Man II"
+      ],
+      [
+       "Anti-Venom"
+      ],
+      [
+       "Apocalypse"
+      ],
+      [
+       "Arachne"
+      ],
+      [
+       "Ardina"
+      ],
+      [
+       "Atlas"
+      ],
+      [
+       "Atlas"
+      ],
+      [
+       "Beast"
+      ],
+      [
+       "Beyonder"
+      ],
+      [
+       "Black Bolt"
+      ],
+      [
+       "Blackout"
+      ],
+      [
+       "Blade"
+      ],
+      [
+       "Bloodaxe"
+      ],
+      [
+       "Bloodwraith"
+      ],
+      [
+       "Cable"
+      ],
+      [
+       "Captain Britain"
+      ],
+      [
+       "Captain Marvel"
+      ],
+      [
+       "Captain Planet"
+      ],
+      [
+       "Carnage"
+      ],
+      [
+       "Colossus"
+      ],
+      [
+       "Deathlok"
+      ],
+      [
+       "Doctor Doom"
+      ],
+      [
+       "Doctor Octopus"
+      ],
+      [
+       "Doppelganger"
+      ],
+      [
+       "Dormammu"
+      ],
+      [
+       "Drax the Destroyer"
+      ],
+      [
+       "Emma Frost"
+      ],
+      [
+       "Evilhawk"
+      ],
+      [
+       "Fallen One II"
+      ],
+      [
+       "Feral"
+      ],
+      [
+       "Fin Fang Foom"
+      ],
+      [
+       "Franklin Richards"
+      ],
+      [
+       "Galactus"
+      ],
+      [
+       "Gamora"
+      ],
+      [
+       "Ghost Rider"
+      ],
+      [
+       "Gladiator"
+      ],
+      [
+       "Green Goblin"
+      ],
+      [
+       "Groot"
+      ],
+      [
+       "Hela"
+      ],
+      [
+       "Hulk"
+      ],
+      [
+       "Hybrid"
+      ],
+      [
+       "Hyperion"
+      ],
+      [
+       "Iceman"
+      ],
+      [
+       "Iron Fist"
+      ],
+      [
+       "Iron Man"
+      ],
+      [
+       "Jack of Hearts"
+      ],
+      [
+       "Juggernaut"
+      ]
+     ],
+     "row_count": 112,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    }
+   ],
+   "chosen": 1,
+   "gold_result": {
+    "columns": [
+     "superhero_name"
+    ],
+    "rows": [
+     [
+      "3-D Man"
+     ],
+     [
+      "A-Bomb"
+     ],
+     [
+      "Abomination"
+     ],
+     [
+      "Abraxas"
+     ],
+     [
+      "Absorbing Man"
+     ],
+     [
+      "Agent Zero"
+     ],
+     [
+      "Air-Walker"
+     ],
+     [
+      "Ajax"
+     ],
+     [
+      "Angel"
+     ],
+     [
+      "Angel Dust"
+     ],
+     [
+      "Annihilus"
+     ],
+     [
+      "Ant-Man II"
+     ],
+     [
+      "Anti-Venom"
+     ],
+     [
+      "Apocalypse"
+     ],
+     [
+      "Arachne"
+     ],
+     [
+      "Archangel"
+     ],
+     [
+      "Arclight"
+     ],
+     [
+      "Ardina"
+     ],
+     [
+      "Ares"
+     ],
+     [
+      "Armor"
+     ],
+     [
+      "Atlas"
+     ],
+     [
+      "Atlas"
+     ],
+     [
+      "Bantam"
+     ],
+     [
+      "Battlestar"
+     ],
+     [
+      "Beast"
+     ],
+     [
+      "Beta Ray Bill"
+     ],
+     [
+      "Beyonder"
+     ],
+     [
+      "Binary"
+     ],
+     [
+      "Bird-Man"
+     ],
+     [
+      "Bishop"
+     ],
+     [
+      "Black Bolt"
+     ],
+     [
+      "Black Cat"
+     ],
+     [
+      "Blackout"
+     ],
+     [
+      "Blackwulf"
+     ],
+     [
+      "Blade"
+     ],
+     [
+      "Blob"
+     ],
+     [
+      "Bloodaxe"
+     ],
+     [
+      "Bloodwraith"
+     ],
+     [
+      "Cable"
+     ],
+     [
+      "Callisto"
+     ],
+     [
+      "Captain Britain"
+     ],
+     [
+      "Captain Marvel"
+     ],
+     [
+      "Captain Planet"
+     ],
+     [
+      "Carnage"
+     ],
+     [
+      "Cat"
+     ],
+     [
+      "Colossus"
+     ],
+     [
+      "Cottonmouth"
+     ],
+     [
+      "Crimson Dynamo"
+     ],
+     [
+      "Crystal"
+     ],
+     [
+      "Deathlok"
+     ]
+    ],
+    "row_count": 201
+   }
+  }
+ },
+ "noev_elapsed_s": 712.6,
+ "noev_error": null
+}

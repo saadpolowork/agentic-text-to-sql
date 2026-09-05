@@ -1,0 +1,1489 @@
+{
+ "db_id": "superhero",
+ "question": "Among all superheroes created by George Lucas, identify the percentage of female superheroes.",
+ "evidence": "created by George Lucas refers to publisher_name = 'George Lucas'; percentage = MULTIPLY(DIVIDE(SUM(gender = 'Female' WHERE publisher_name = 'George Lucas'), COUNT(publisher_name = 'George Lucas')), 100.0); female refers to gender = 'Female';",
+ "gold_sql": "SELECT CAST(COUNT(CASE WHEN T3.gender = 'Female' THEN 1 ELSE NULL END) AS REAL) * 100 / COUNT(T1.id) FROM superhero AS T1 INNER JOIN publisher AS T2 ON T1.publisher_id = T2.id INNER JOIN gender AS T3 ON T1.gender_id = T3.id WHERE T2.publisher_name = 'George Lucas'",
+ "models": {
+  "stage1": "google/gemma-4-31b",
+  "stage2": "google/gemma-4-31b",
+  "stage3": "google/gemma-4-31b"
+ },
+ "stages": {
+  "stage1": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Today is your first day at a new company.\n\nNormally this work takes three days. You do not have three days. You have to do it all today.\n\nHere is how you think through a new client question:\n\nPHASE 1 — Before you look at anything:\nYou read the question and evidence first, with the schema face-down. You write out every question\nyou would want answered and every assumption you are making. You are a philosopher — you think in\nwho, what, when, where, by whom, for whom. You think in counter-proofs. What would make an\nassumption wrong? What encoding or edge case breaks the obvious reading? Stating a wrong assumption\nexplicitly is more honest and useful than a vague non-answer.\n\nPHASE 2 — You look at the schema:\nThe data dictionary arrives: table names, column names, types, primary keys, and foreign key\nrelationships. You do NOT get statistics — no min, max, null counts, or sample values. That is\nwhat Phase 3 is for. Some of your Phase 1 assumptions will be confirmed. Some will be wrong. Some\nnew questions will appear that you could not have thought of without seeing the actual column names.\nYou update every assumption. You tag each question.\n\nPHASE 3 — You write exploratory SQL:\nYou have database access. You are excited and thorough. You know that being new means you earn trust\nby being rigorous, not reckless. You have two phases of thinking behind you — now you turn that into\nexploratory SQL. Write at least 15 queries. The system will reject outputs with fewer than 5 —\nthose records will be skipped entirely and the question will not advance to the next stage.\n\nYou have six proof obligations:\n\n1. EXISTENCE LEMMA (DISTINCT probes):\n   For every categorical column you plan to filter on, run SELECT DISTINCT col FROM table LIMIT 20.\n   This is a direct proof of existence — it proves which values actually live in the database.\n   Without this proof, any filter using that column is an ungrounded conjecture. The system will\n   treat unproven filter values as errors in Stage 2.\n\n2. CONNECTIVITY LEMMA (join verification):\n   Before writing any multi-table JOIN, prove the join path works. Run a query on each side of the\n   join key: SELECT DISTINCT join_col FROM table_a LIMIT 5 and SELECT DISTINCT join_col FROM table_b\n   LIMIT 5. If both return values and they overlap, the join is proven. If either returns zero rows\n   or different types, the join is disproven — do not use it.\n\n3. AXIOMATIC NEUTRALITY (contrapositive for filters):\n   Do not add status, active/inactive, or any other filter unless the question explicitly mentions\n   it. Assume the contrapositive: if the question does not mention a constraint, its absence is\n   correct until you prove otherwise. Run at least one query WITHOUT any assumed filter to establish\n   the unfiltered baseline.\n\n4. COLUMN SUITABILITY PROOFS (null-count & scope):\n   Before using any column for aggregation (COUNT, AVG, SUM, MAX, MIN), run a null-count query:\n   SELECT COUNT(*) - COUNT(col) as nulls, COUNT(*) as total FROM table.\n   If nulls exceed 50% of total, that column is statistically unsuitable as a primary metric —\n   look for alternatives. After identifying your primary filter value, run TWO scope queries:\n   (a) one query WITHOUT the filter — note the total row count (unfiltered universe).\n   (b) one query WITH the filter — note the filtered row count.\n   Compare: if filtered count equals unfiltered count, the filter is a no-op and likely wrong.\n   If filtered count is zero, the value does not exist. Both indicate a scope mismatch.\n\n5. ANNOTATION LEMMA (semantic mapping of opaque columns):\n   If the schema contains column names that are short codes, single letters, abbreviations, or\n   numeric identifiers (e.g., col1, X, stat, code_a), you cannot assume their meaning from the\n   name alone. For every such opaque column that could be relevant to the question, run:\n   SELECT DISTINCT col FROM table LIMIT 20\n   Then annotate each with its apparent meaning based on the values returned. Format your comment:\n   \"ANNOTATION LEMMA: col_name appears to be [description] (values: val1, val2, val3)\"\n   This is a direct proof of semantic identity — without it, any use of an opaque column is an\n   ungrounded assumption about what the column contains.\n\n6. JOIN VERIFICATION (non-key joins):\n   The schema marks primary keys [PK] and foreign keys [FK]. If you plan to join two tables on\n   a column that is NOT marked as a PK or FK, you must prove the join is valid by querying both\n   sides: SELECT DISTINCT col FROM table_a LIMIT 5 and SELECT DISTINCT col FROM table_b LIMIT 5.\n   If the values do not overlap, the join is invalid. PK/FK joins are pre-verified by the schema.\n\nAdditional rules:\n- Multi-part question decomposition: Before writing any Phase 1 assumptions, read the\n  question and ask: does it contain multiple distinct sub-questions? A multi-part question\n  typically uses connectors like \"and\", \"also\", \"as well as\", or asks for two different\n  pieces of information in one sentence (e.g. \"What is X? What is Y for Z?\"). If yes,\n  list each sub-question separately in Phase 1 and treat them as independent proof obligations.\n  Your Phase 3 queries must cover every part — a query that only answers one part of a\n  multi-part question is incomplete. The final SQL must return all parts in a single query\n  (using JOIN, subquery, or multiple SELECT expressions as appropriate).\n- Cover all tables that could relate to the question, not just the most obvious one.\n- SELECT only the columns needed for each specific check — no extra \"context\" columns.\n- Identifier Precision: Determine whether the question asks for a primary identifier\n  (ID, code, number) or a descriptive label (name, title, description). If both columns exist\n  side by side in the same table, run a DISTINCT query on each. Your Phase 1 assumptions must\n  explicitly state which column type the question wants. This prevents the Director from\n  guessing at the SELECT column later.\n- Each query has exactly one SQL comment (-- ...) that is a single complete sentence explaining\n  why this specific piece of information matters for answering the client question.\n- Always use LIMIT. Check both heads and tails for any table you are uncertain about.\n- Do NOT write the final answer query — that comes after you see what these return.\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\nA numbered list. For each item: state the question, then immediately state your current assumption.\nAssumptions can be wrong — that is expected and useful.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, explaining why these are the\nright questions to ask.\n\n## PHASE 2 — SCHEMA REVIEW\nA numbered list. For each item from Phase 1, mark it with exactly one tag:\n  [CONFIRMED] — the profile supports your Phase 1 assumption\n  [REVISED]   — you need to update your assumption based on what you see\n  [NEW]       — a question that did not exist in Phase 1, raised by the schema or statistics\n  [DROPPED]   — this question is no longer relevant given what the profile shows\n\nAfter the tag, give a brief one-sentence reason.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, describing what the profile\nrevealed and what still requires direct database investigation.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\nA numbered list of SQL queries. Minimum 15 queries.\n\nSQLite rules — this is non-negotiable:\n- The database engine is SQLite. Write only SQL that SQLite supports.\n- Column names that contain spaces, parentheses, or special characters MUST be\n  wrapped in double quotes. Example: \"County Name\", \"Free Meal Count (K-12)\".\n  Never write an unquoted column name that contains a space.\n- Do not use window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.).\n- Always use LIMIT.\n- Do NOT write the final answer query.\n\nOutput format for Phase 3 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the department_type column.\n   SELECT DISTINCT department_type FROM departments LIMIT 20;\n\n2. -- SCOPE CHECK: Establish the time range covered by the data.\n   SELECT MIN(hire_date), MAX(hire_date) FROM employees LIMIT 1;\n\n3. -- NULL-COUNT PROOF: Verify salary column suitability for aggregation.\n   SELECT COUNT(*) - COUNT(salary) as nulls, COUNT(*) as total FROM employees LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between employees and departments.\n   SELECT DISTINCT department_id FROM employees LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Other side of the join.\n   SELECT DISTINCT id FROM departments LIMIT 5;\n\n6. -- ANNOTATION LEMMA: Determine what opaque column 'dept_code' actually contains.\n   SELECT DISTINCT dept_code FROM departments LIMIT 20;\n\n7. -- JOIN VERIFICATION: Verify non-key join between employees.role and roles.role_name.\n   SELECT DISTINCT role FROM employees LIMIT 5;\n\n8. -- SCOPE PROOF: Unfiltered universe count for the target table.\n   SELECT COUNT(*) FROM employees LIMIT 1;\n\n9. -- SCOPE PROOF: Filtered count — verify filter narrows to expected scope.\n   SELECT COUNT(*) FROM employees WHERE department_type = 'Engineering' LIMIT 1;",
+   "user_prompt": "A new client question just arrived on your desk.\n\nQuestion: Among all superheroes created by George Lucas, identify the percentage of female superheroes.\nEvidence: created by George Lucas refers to publisher_name = 'George Lucas'; percentage = MULTIPLY(DIVIDE(SUM(gender = 'Female' WHERE publisher_name = 'George Lucas'), COUNT(publisher_name = 'George Lucas')), 100.0); female refers to gender = 'Female';\n\nDatabase: superhero\n\nSchema (table names, column names, types, primary keys, foreign keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nWork through all three phases now.",
+   "response": "## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\n\n1. Does the publisher table contain a record exactly matching 'George Lucas'? Assumption: The value is stored as 'George Lucas'.\n2. Is the gender of superheroes explicitly labeled as 'Female' in the gender table? Assumption: The label used is 'Female'.\n3. Are there any other variations of George Lucas (e.g., \"Lucas, George\") that should be included? Assumption: Only 'George Lucas' is required based on evidence.\n4. Does every superhero have an assigned publisher and gender? Assumption: Some records may have NULL values for these foreign keys.\n5. Is the percentage calculation based on all superheroes associated with George Lucas, or only those with a known gender? Assumption: The denominator is the total count of superheroes created by George Lucas regardless of whether their gender is recorded.\n6. Does the question require the descriptive name of the publisher and gender rather than their IDs? Assumption: Yes, the evidence points to filtering on labels like 'George Lucas' and 'Female'.\n\nREASONING\nThe request requires a specific ratio derived from two different tables linked via a central table.\nI must verify that the string literals provided in the evidence match the database entries exactly.\nIdentifying potential NULLs is critical because they affect both the numerator and denominator of a percentage.\nChecking for naming variations ensures no data is omitted due to formatting differences.\nConfirming the join paths between superheroes, publishers, and genders is necessary for a valid result.\n\n## PHASE 2 — SCHEMA REVIEW\n\n1. [CONFIRMED] The publisher table has a `publisher_name` column to verify 'George Lucas'.\n2. [CONFIRMED] The gender table has a `gender` column to verify 'Female'.\n3. [CONFIRMED] The `superhero` table contains `publisher_id` and `gender_id` as foreign keys.\n4. [REVISED] I must check for NULLs in `superhero.publisher_id` and `superhero.gender_id` since they are not marked as NOT NULL.\n5. [CONFIRMED] The join path is clear: superhero -> publisher (via publisher_id) and superhero -> gender (via gender_id).\n6. [NEW] I need to verify if there are multiple entries for the same publisher name which would complicate the ID lookup.\n\nREASONING\nThe schema confirms a normalized structure where attributes like gender and publisher are stored in separate tables.\nForeign key relationships are explicitly defined, providing a clear path for joining the three necessary tables.\nNo opaque columns or short codes were found, so semantic mapping is likely straightforward.\nThe existence of these labels must still be proven through DISTINCT queries to avoid ungrounded conjectures.\nI need to establish the total population size and the specific subset size before calculating the final percentage.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\n\n1. -- EXISTENCE LEMMA: Confirm that 'George Lucas' exists as a distinct value in the publisher table.\n   SELECT DISTINCT publisher_name FROM publisher LIMIT 20;\n\n2. -- EXISTENCE LEMMA: Confirm that 'Female' exists as a distinct value in the gender table.\n   SELECT DISTINCT gender FROM gender LIMIT 20;\n\n3. -- COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to determine if it is suitable for filtering.\n   SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n4. -- COLUMN SUITABILITY PROOF: Check for nulls in gender_id to determine if it is suitable for aggregation.\n   SELECT COUNT(*) - COUNT(gender_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n5. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes in the database.\n   SELECT COUNT(*) FROM superhero LIMIT 1;\n\n6. -- EXISTENCE LEMMA: Check for any naming variations of George Lucas to ensure no data is missed.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Lucas%' LIMIT 20;\n\n7. -- EXISTENCE LEMMA: Check for any naming variations of Female gender labels.\n   SELECT DISTINCT gender FROM gender WHERE gender LIKE '%Fem%' LIMIT 20;\n\n8. -- SCOPE PROOF: Determine the total number of superheroes created by George Lucas to establish the denominator.\n   SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'George Lucas' LIMIT 1;\n\n9. -- SCOPE PROOF: Determine the number of female superheroes created by George Lucas to establish the numerator.\n   SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id JOIN gender g ON s.gender_id = g.id WHERE p.publisher_name = 'George Lucas' AND g.gender = 'Female' LIMIT 1;\n\n10. -- CONNECTIVITY LEMMA: Verify the join key values on the superhero side for publishers.\n    SELECT DISTINCT publisher_id FROM superhero LIMIT 5;\n\n11. -- CONNECTIVITY LEMMA: Verify the join key values on the publisher side.\n    SELECT DISTINCT id FROM publisher LIMIT 5;\n\n12. -- CONNECTIVITY LEMMA: Verify the join key values on the superhero side for gender.\n    SELECT DISTINCT gender_id FROM superhero LIMIT 5;\n\n13. -- CONNECTIVITY LEMMA: Verify the join key values on the gender side.\n    SELECT DISTINCT id FROM gender LIMIT 5;\n\n14. -- SCOPE PROOF: Check if any superheroes have a NULL publisher to see if they are excluded from the 'George Lucas' set.\n    SELECT COUNT(*) FROM superhero WHERE publisher_id IS NULL LIMIT 1;\n\n15. -- SCOPE PROOF: Check if any superheroes have a NULL gender to see how it affects the percentage calculation.\n    SELECT COUNT(*) FROM superhero WHERE gender_id IS NULL LIMIT 1;",
+   "phase1": "1. Does the publisher table contain a record exactly matching 'George Lucas'? Assumption: The value is stored as 'George Lucas'.\n2. Is the gender of superheroes explicitly labeled as 'Female' in the gender table? Assumption: The label used is 'Female'.\n3. Are there any other variations of George Lucas (e.g., \"Lucas, George\") that should be included? Assumption: Only 'George Lucas' is required based on evidence.\n4. Does every superhero have an assigned publisher and gender? Assumption: Some records may have NULL values for these foreign keys.\n5. Is the percentage calculation based on all superheroes associated with George Lucas, or only those with a known gender? Assumption: The denominator is the total count of superheroes created by George Lucas regardless of whether their gender is recorded.\n6. Does the question require the descriptive name of the publisher and gender rather than their IDs? Assumption: Yes, the evidence points to filtering on labels like 'George Lucas' and 'Female'.\n\nREASONING\nThe request requires a specific ratio derived from two different tables linked via a central table.\nI must verify that the string literals provided in the evidence match the database entries exactly.\nIdentifying potential NULLs is critical because they affect both the numerator and denominator of a percentage.\nChecking for naming variations ensures no data is omitted due to formatting differences.\nConfirming the join paths between superheroes, publishers, and genders is necessary for a valid result.",
+   "phase2": "1. [CONFIRMED] The publisher table has a `publisher_name` column to verify 'George Lucas'.\n2. [CONFIRMED] The gender table has a `gender` column to verify 'Female'.\n3. [CONFIRMED] The `superhero` table contains `publisher_id` and `gender_id` as foreign keys.\n4. [REVISED] I must check for NULLs in `superhero.publisher_id` and `superhero.gender_id` since they are not marked as NOT NULL.\n5. [CONFIRMED] The join path is clear: superhero -> publisher (via publisher_id) and superhero -> gender (via gender_id).\n6. [NEW] I need to verify if there are multiple entries for the same publisher name which would complicate the ID lookup.\n\nREASONING\nThe schema confirms a normalized structure where attributes like gender and publisher are stored in separate tables.\nForeign key relationships are explicitly defined, providing a clear path for joining the three necessary tables.\nNo opaque columns or short codes were found, so semantic mapping is likely straightforward.\nThe existence of these labels must still be proven through DISTINCT queries to avoid ungrounded conjectures.\nI need to establish the total population size and the specific subset size before calculating the final percentage.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "EXISTENCE LEMMA: Confirm that 'George Lucas' exists as a distinct value in the publisher table.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       ""
+      ],
+      [
+       "ABC Studios"
+      ],
+      [
+       "Dark Horse Comics"
+      ],
+      [
+       "DC Comics"
+      ],
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "EXISTENCE LEMMA: Confirm that 'Female' exists as a distinct value in the gender table.",
+     "sql": "SELECT DISTINCT gender FROM gender LIMIT 20",
+     "status": "success",
+     "columns": [
+      "gender"
+     ],
+     "head": [
+      [
+       "Male"
+      ],
+      [
+       "Female"
+      ],
+      [
+       "N/A"
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to determine if it is suitable for filtering.",
+     "sql": "SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       3,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in gender_id to determine if it is suitable for aggregation.",
+     "sql": "SELECT COUNT(*) - COUNT(gender_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes in the database.",
+     "sql": "SELECT COUNT(*) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "EXISTENCE LEMMA: Check for any naming variations of George Lucas to ensure no data is missed.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Lucas%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "EXISTENCE LEMMA: Check for any naming variations of Female gender labels.",
+     "sql": "SELECT DISTINCT gender FROM gender WHERE gender LIKE '%Fem%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "gender"
+     ],
+     "head": [
+      [
+       "Female"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "SCOPE PROOF: Determine the total number of superheroes created by George Lucas to establish the denominator.",
+     "sql": "SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'George Lucas' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       15
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "SCOPE PROOF: Determine the number of female superheroes created by George Lucas to establish the numerator.",
+     "sql": "SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id JOIN gender g ON s.gender_id = g.id WHERE p.publisher_name = 'George Lucas' AND g.gender = 'Female' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       2
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "CONNECTIVITY LEMMA: Verify the join key values on the superhero side for publishers.",
+     "sql": "SELECT DISTINCT publisher_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "publisher_id"
+     ],
+     "head": [
+      [
+       13
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       15
+      ],
+      [
+       25
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "CONNECTIVITY LEMMA: Verify the join key values on the publisher side.",
+     "sql": "SELECT DISTINCT id FROM publisher LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "CONNECTIVITY LEMMA: Verify the join key values on the superhero side for gender.",
+     "sql": "SELECT DISTINCT gender_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "gender_id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "CONNECTIVITY LEMMA: Verify the join key values on the gender side.",
+     "sql": "SELECT DISTINCT id FROM gender LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "SCOPE PROOF: Check if any superheroes have a NULL publisher to see if they are excluded from the 'George Lucas' set.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       3
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "SCOPE PROOF: Check if any superheroes have a NULL gender to see how it affects the percentage calculation.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE gender_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage2": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Yesterday you worked through a client question in three phases:\nPhase 1 — questions and assumptions written before seeing the schema.\nPhase 2 — schema review, assumptions updated against column profiles.\nPhase 3 — exploratory SQL queries written to investigate the data.\n\nNow the queries have run. You have the results in front of you.\n\nYour job today is three phases:\n\nPHASE 4 — REVISED ASSUMPTIONS\nGo through every assumption you made in Phases 1 and 2. For each one, state what the query results show.\nTag each item with exactly one of:\n  [CONFIRMED]    — a PASSED query directly proves this assumption. Cite the query number.\n  [REVISED]      — results partially support but require adjustment. State what changed and why.\n  [CONTRADICTED] — a query returned zero rows, an error, or unexpected data that disproves this\n                   hypothesis. This is not a failure — it is a proof by contradiction. State clearly\n                   what was disproven and what it implies.\n  [OPEN-VALUE]   — an assumption involves a string filter value that was NEVER confirmed with a\n                   SELECT DISTINCT query. This is an open conjecture — the Director cannot use it.\n                   Phase 5 MUST include a DISTINCT query to resolve it.\n  [WRONG-TABLE]  — query results suggest the data does not live in the assumed table (column doesn't\n                   exist, zero rows where many were expected, data type mismatch). The hypothesis\n                   about which table to use is disproven. Phase 5 must explore the alternative.\n  [LIKE-VS-ENUM] — the analyst used LIKE or a substring match on a name/description column, but\n                   the schema may contain a separate coded or enum column for the same concept\n                   (e.g., filtering by name string when a type_code column exists). Phase 5 MUST\n                   include a DISTINCT query on the potential enum column to check if it provides\n                   a cleaner, exact-match filter.\n\nAfter the tag, write one sentence citing which query result led to this conclusion.\n\nContrapositive test for filters: For each filter in your hypothesis, apply the contrapositive test:\n\"If the question does not explicitly mention this constraint, then it should NOT appear in the WHERE\nclause.\" If Stage 1 added a filter that the question never asked for (e.g. a status filter, an\nactive/inactive check), tag it [CONTRADICTED] with reason: \"contrapositive — question does not\nmention this constraint.\"\n\nPHASE 4b — HYPOTHESIS REVIEW\nWrite a short paragraph (3–5 sentences) answering:\n  1. Does your original hypothesis about how to answer this question still hold?\n     State clearly: YES it holds, NO it needs to change, or PARTIALLY — explain what changed.\n  2. Did the query results reveal anything you did not expect? If so, what?\n  3. What is your updated hypothesis for the final SQL approach?\n\nYour updated hypothesis must name:\n  - The exact table name(s) as they appear in the schema\n  - The exact column name(s) — quoted if they contain spaces\n  - The exact confirmed string value (if a filter is needed) — proven by a DISTINCT query\n  - The exact join path (if tables must be joined) — proven by connectivity lemma queries\n  Vague hypotheses like \"filter by type\" or \"join on the ID column\" are rejected.\n  If any piece is uncertain, tag it [OPEN-VALUE] and resolve it in Phase 5.\n\nPHASE 5 — CONFIRMATION QUERIES\nWrite at least 15 new SQL queries. The system will reject outputs with fewer than 5 — those records\nwill be skipped entirely. These are not exploratory — they are targeted at the gaps, surprises, and\nrevised assumptions from Phases 4 and 4b.\n\nMandatory resolution: Every [OPEN-VALUE] and [WRONG-TABLE] from Phase 4 MUST have a corresponding\nresolution query in Phase 5. An unresolved conjecture is a gap that the Director will fill with\nguesswork — and guesswork is how we get wrong answers.\n  - For [OPEN-VALUE]: run SELECT DISTINCT col FROM table LIMIT 20 to prove the exact value.\n  - For [WRONG-TABLE]: run exploratory queries against the alternative table.\n  - For [LIKE-VS-ENUM]: run SELECT DISTINCT enum_col FROM table LIMIT 20. If the enum column\n    provides exact values that match the question's intent, recommend it over the LIKE filter\n    in your Phase 4b hypothesis update.\n\nDo not repeat queries from Phase 3. Each query must address something new.\n\nSQLite rules — same as before, non-negotiable:\n- Column names with spaces or special characters MUST be double-quoted: \"County Name\"\n- No window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.)\n- Always use LIMIT\n- Do NOT write the final answer query\n\nOutput format for Phase 5 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- RESOLVE [OPEN-VALUE]: Prove what distinct values exist in order_status.\n   SELECT DISTINCT order_status FROM orders LIMIT 20;\n\n2. -- RESOLVE [WRONG-TABLE]: Check if revenue data lives in invoices instead of orders.\n   SELECT COUNT(*), MIN(total), MAX(total) FROM invoices LIMIT 1;\n\n3. -- CONTRAPOSITIVE TEST: Verify results without the assumed 'active' filter.\n   SELECT COUNT(*) FROM customers LIMIT 1;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check if department_code is a cleaner filter than department_name.\n   SELECT DISTINCT department_code, department_name FROM departments LIMIT 20;\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 4 — REVISED ASSUMPTIONS\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\n## PHASE 5 — CONFIRMATION QUERIES",
+   "user_prompt": "The query results are in. Time to review.\n\nQuestion: Among all superheroes created by George Lucas, identify the percentage of female superheroes.\nEvidence: created by George Lucas refers to publisher_name = 'George Lucas'; percentage = MULTIPLY(DIVIDE(SUM(gender = 'Female' WHERE publisher_name = 'George Lucas'), COUNT(publisher_name = 'George Lucas')), 100.0); female refers to gender = 'Female';\n\nDatabase: superhero\n\nSchema (same as before — table names, column names, types, join keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\n---\n\nYour Phase 1 — Two Semantic Hypotheses:\n\n1. Does the publisher table contain a record exactly matching 'George Lucas'? Assumption: The value is stored as 'George Lucas'.\n2. Is the gender of superheroes explicitly labeled as 'Female' in the gender table? Assumption: The label used is 'Female'.\n3. Are there any other variations of George Lucas (e.g., \"Lucas, George\") that should be included? Assumption: Only 'George Lucas' is required based on evidence.\n4. Does every superhero have an assigned publisher and gender? Assumption: Some records may have NULL values for these foreign keys.\n5. Is the percentage calculation based on all superheroes associated with George Lucas, or only those with a known gender? Assumption: The denominator is the total count of superheroes created by George Lucas regardless of whether their gender is recorded.\n6. Does the question require the descriptive name of the publisher and gender rather than their IDs? Assumption: Yes, the evidence points to filtering on labels like 'George Lucas' and 'Female'.\n\nREASONING\nThe request requires a specific ratio derived from two different tables linked via a central table.\nI must verify that the string literals provided in the evidence match the database entries exactly.\nIdentifying potential NULLs is critical because they affect both the numerator and denominator of a percentage.\nChecking for naming variations ensures no data is omitted due to formatting differences.\nConfirming the join paths between superheroes, publishers, and genders is necessary for a valid result.\n\n---\n\nYour Phase 2 — Schema Deep Dive:\n\n1. [CONFIRMED] The publisher table has a `publisher_name` column to verify 'George Lucas'.\n2. [CONFIRMED] The gender table has a `gender` column to verify 'Female'.\n3. [CONFIRMED] The `superhero` table contains `publisher_id` and `gender_id` as foreign keys.\n4. [REVISED] I must check for NULLs in `superhero.publisher_id` and `superhero.gender_id` since they are not marked as NOT NULL.\n5. [CONFIRMED] The join path is clear: superhero -> publisher (via publisher_id) and superhero -> gender (via gender_id).\n6. [NEW] I need to verify if there are multiple entries for the same publisher name which would complicate the ID lookup.\n\nREASONING\nThe schema confirms a normalized structure where attributes like gender and publisher are stored in separate tables.\nForeign key relationships are explicitly defined, providing a clear path for joining the three necessary tables.\nNo opaque columns or short codes were found, so semantic mapping is likely straightforward.\nThe existence of these labels must still be proven through DISTINCT queries to avoid ungrounded conjectures.\nI need to establish the total population size and the specific subset size before calculating the final percentage.\n\n---\n\nPhase 3 — Exploratory Query Results:\n\n1. -- EXISTENCE LEMMA: Confirm that 'George Lucas' exists as a distinct value in the publisher table.\n   SELECT DISTINCT publisher_name FROM publisher LIMIT 20\n   Columns: publisher_name\n   ['']\n   ['ABC Studios']\n   ['Dark Horse Comics']\n   ... (20 rows total)\n\n2. -- EXISTENCE LEMMA: Confirm that 'Female' exists as a distinct value in the gender table.\n   SELECT DISTINCT gender FROM gender LIMIT 20\n   Columns: gender\n   ['Male']\n   ['Female']\n   ['N/A']\n\n3. -- COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to determine if it is suitable for filtering.\n   SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [3, 750]\n\n4. -- COLUMN SUITABILITY PROOF: Check for nulls in gender_id to determine if it is suitable for aggregation.\n   SELECT COUNT(*) - COUNT(gender_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [0, 750]\n\n5. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes in the database.\n   SELECT COUNT(*) FROM superhero LIMIT 1\n   Columns: COUNT(*)\n   [750]\n\n6. -- EXISTENCE LEMMA: Check for any naming variations of George Lucas to ensure no data is missed.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Lucas%' LIMIT 20\n   Columns: publisher_name\n   ['George Lucas']\n\n7. -- EXISTENCE LEMMA: Check for any naming variations of Female gender labels.\n   SELECT DISTINCT gender FROM gender WHERE gender LIKE '%Fem%' LIMIT 20\n   Columns: gender\n   ['Female']\n\n8. -- SCOPE PROOF: Determine the total number of superheroes created by George Lucas to establish the denominator.\n   SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'George Lucas' LIMIT 1\n   Columns: COUNT(*)\n   [15]\n\n9. -- SCOPE PROOF: Determine the number of female superheroes created by George Lucas to establish the numerator.\n   SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id JOIN gender g ON s.gender_id = g.id WHERE p.publisher_name = 'George Lucas' AND g.gender = 'Female' LIMIT 1\n   Columns: COUNT(*)\n   [2]\n\n10. -- CONNECTIVITY LEMMA: Verify the join key values on the superhero side for publishers.\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5\n   Columns: publisher_id\n   [13]\n   [3]\n   [4]\n   ... (5 rows total)\n\n11. -- CONNECTIVITY LEMMA: Verify the join key values on the publisher side.\n   SELECT DISTINCT id FROM publisher LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n12. -- CONNECTIVITY LEMMA: Verify the join key values on the superhero side for gender.\n   SELECT DISTINCT gender_id FROM superhero LIMIT 5\n   Columns: gender_id\n   [1]\n   [2]\n   [3]\n\n13. -- CONNECTIVITY LEMMA: Verify the join key values on the gender side.\n   SELECT DISTINCT id FROM gender LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n\n14. -- SCOPE PROOF: Check if any superheroes have a NULL publisher to see if they are excluded from the 'George Lucas' set.\n   SELECT COUNT(*) FROM superhero WHERE publisher_id IS NULL LIMIT 1\n   Columns: COUNT(*)\n   [3]\n\n15. -- SCOPE PROOF: Check if any superheroes have a NULL gender to see how it affects the percentage calculation.\n   SELECT COUNT(*) FROM superhero WHERE gender_id IS NULL LIMIT 1\n   Columns: COUNT(*)\n   [0]\n\n---\n\nWork through Phase 4 and Phase 5 now.",
+   "response": "## PHASE 4 — REVISED ASSUMPTIONS\n\n1. Assumption: The value for publisher is stored exactly as 'George Lucas'. [CONFIRMED] Query 6 proves this exact string exists and is the only one containing \"Lucas\".\n2. Assumption: The label used for female gender is 'Female'. [CONFIRMED] Query 7 proves this exact string exists.\n3. Assumption: Only 'George Lucas' is required, no other variations. [CONFIRMED] Query 6 showed no other variations of the name in the publisher table.\n4. Assumption: Some records may have NULL values for foreign keys. [CONFIRMED] Query 3 and 14 prove there are 3 superheroes with NULL publisher_id.\n5. Assumption: The denominator is the total count of superheroes created by George Lucas regardless of gender recording. [CONFIRMED] Query 8 establishes this population (15) independently of the gender filter in Query 9.\n6. Assumption: Filtering should be done on descriptive labels rather than IDs. [CONFIRMED] Queries 8 and 9 successfully used labels to isolate the target population.\n7. Assumption: The publisher table has a `publisher_name` column. [CONFIRMED] Query 1 proves this.\n8. Assumption: The gender table has a `gender` column. [CONFIRMED] Query 2 proves this.\n9. Assumption: The `superhero` table contains `publisher_id` and `gender_id`. [CONFIRMED] Queries 10 and 12 prove these columns exist and contain data.\n10. Assumption: I must check for NULLs in `superhero.publisher_id` and `superhero.gender_id`. [CONFIRMED] Query 3 (publisher_id has 3 nulls) and Query 4 (gender_id has 0 nulls).\n11. Assumption: The join path is superhero -> publisher and superhero -> gender. [CONFIRMED] Queries 8 and 9 prove this connectivity works to return results.\n12. Assumption: There are no multiple entries for the same publisher name that would complicate ID lookup. [OPEN-VALUE] Query 1 used DISTINCT on the name, but did not check if multiple unique IDs share the same name 'George Lucas'.\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\nYES, the original hypothesis holds. The query results confirm that the target population is small (15 superheroes) and the subset of females is even smaller (2 superheroes), making the calculation straightforward. I did not find any unexpected data, although it is notable that `gender_id` is fully populated across the entire dataset while `publisher_id` has a few gaps.\n\nMy updated hypothesis for the final SQL approach:\nJoin the `superhero` table to the `publisher` table using `superhero.publisher_id = publisher.id` and join the `superhero` table to the `gender` table using `superhero.gender_id = gender.id`. Filter the results where `publisher.publisher_name` is exactly 'George Lucas'. To calculate the percentage, I will use a conditional SUM of 1.0 for records where `gender.gender` is 'Female', divided by the total count of superheroes associated with that publisher, multiplied by 100.0.\n\n## PHASE 5 — CONFIRMATION QUERIES\n\n1. -- RESOLVE [OPEN-VALUE]: Check if multiple IDs exist for the same publisher name 'George Lucas'.\n   SELECT id, publisher_name FROM publisher WHERE publisher_name = 'George Lucas' LIMIT 20;\n\n2. -- DATA INTEGRITY: Check for orphan records in superhero table where publisher_id does not exist in publisher table.\n   SELECT COUNT(*) FROM superhero WHERE publisher_id NOT IN (SELECT id FROM publisher) AND publisher_id IS NOT NULL LIMIT 1;\n\n3. -- DATA INTEGRITY: Check for orphan records in superhero table where gender_id does not exist in gender table.\n   SELECT COUNT(*) FROM superhero WHERE gender_id NOT IN (SELECT id FROM gender) AND gender_id IS NOT NULL LIMIT 1;\n\n4. -- CASE SENSITIVITY TEST: Verify if 'GEORGE LUCAS' returns different results than 'George Lucas'.\n   SELECT COUNT(*) FROM publisher WHERE publisher_name = 'GEORGE LUCAS' LIMIT 1;\n\n5. -- CASE SENSITIVITY TEST: Verify if 'FEMALE' returns different results than 'Female'.\n   SELECT COUNT(*) FROM gender WHERE gender = 'FEMALE' LIMIT 1;\n\n6. -- WHITESPACE TEST: Check for leading or trailing spaces in publisher names that might affect exact matches.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '% George Lucas%' OR publisher_name LIKE '%George Lucas %' LIMIT 20;\n\n7. -- WHITESPACE TEST: Check for leading or trailing spaces in gender labels.\n   SELECT DISTINCT gender FROM gender WHERE gender LIKE '% Female%' OR gender LIKE '%Female %' LIMIT 20;\n\n8. -- DISTRIBUTION CHECK: List all genders associated with George Lucas superheroes to ensure no unexpected values.\n   SELECT DISTINCT g.gender FROM superhero s JOIN publisher p ON s.publisher_id = p.id JOIN gender g ON s.gender_id = g.id WHERE p.publisher_name = 'George Lucas' LIMIT 20;\n\n9. -- POPULATION VERIFICATION: Get the raw count of each gender for George Lucas to manually verify the percentage components.\n   SELECT g.gender, COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id JOIN gender g ON s.gender_id = g.id WHERE p.publisher_name = 'George Lucas' GROUP BY g.gender LIMIT 20;\n\n10. -- SCOPE EXPANSION: Check if other publishers exist with \"Lucas\" in the name (e.g., Lucasfilm) that were missed by previous LIKE queries.\n    SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Lucas%' LIMIT 20;\n\n11. -- NULL ANALYSIS: Verify if any superheroes created by George Lucas have a NULL gender_id despite the global check.\n    SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'George Lucas' AND s.gender_id IS NULL LIMIT 1;\n\n12. -- UNICITY CHECK: Check for duplicate superhero names under George Lucas to ensure we aren't double-counting individuals.\n    SELECT superhero_name, COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'George Lucas' GROUP BY superhero_name HAVING COUNT(*) > 1 LIMIT 20;\n\n13. -- SCHEMA VALIDATION: Confirm the data type of gender_id and publisher_id to ensure no implicit casting issues during joins.\n    SELECT typeof(gender_id), typeof(publisher_id) FROM superhero LIMIT 1;\n\n14. -- DATA EXPLORATION: Check for any empty strings in the publisher table that might be mistaken for missing data.\n    SELECT COUNT(*) FROM publisher WHERE publisher_name = '' LIMIT 1;\n\n15. -- DATA EXPLORATION: Check for any empty strings in the gender table.\n    SELECT COUNT(*) FROM gender WHERE gender = '' LIMIT 1;",
+   "phase4": "1. Assumption: The value for publisher is stored exactly as 'George Lucas'. [CONFIRMED] Query 6 proves this exact string exists and is the only one containing \"Lucas\".\n2. Assumption: The label used for female gender is 'Female'. [CONFIRMED] Query 7 proves this exact string exists.\n3. Assumption: Only 'George Lucas' is required, no other variations. [CONFIRMED] Query 6 showed no other variations of the name in the publisher table.\n4. Assumption: Some records may have NULL values for foreign keys. [CONFIRMED] Query 3 and 14 prove there are 3 superheroes with NULL publisher_id.\n5. Assumption: The denominator is the total count of superheroes created by George Lucas regardless of gender recording. [CONFIRMED] Query 8 establishes this population (15) independently of the gender filter in Query 9.\n6. Assumption: Filtering should be done on descriptive labels rather than IDs. [CONFIRMED] Queries 8 and 9 successfully used labels to isolate the target population.\n7. Assumption: The publisher table has a `publisher_name` column. [CONFIRMED] Query 1 proves this.\n8. Assumption: The gender table has a `gender` column. [CONFIRMED] Query 2 proves this.\n9. Assumption: The `superhero` table contains `publisher_id` and `gender_id`. [CONFIRMED] Queries 10 and 12 prove these columns exist and contain data.\n10. Assumption: I must check for NULLs in `superhero.publisher_id` and `superhero.gender_id`. [CONFIRMED] Query 3 (publisher_id has 3 nulls) and Query 4 (gender_id has 0 nulls).\n11. Assumption: The join path is superhero -> publisher and superhero -> gender. [CONFIRMED] Queries 8 and 9 prove this connectivity works to return results.\n12. Assumption: There are no multiple entries for the same publisher name that would complicate ID lookup. [OPEN-VALUE] Query 1 used DISTINCT on the name, but did not check if multiple unique IDs share the same name 'George Lucas'.",
+   "phase4b": "YES, the original hypothesis holds. The query results confirm that the target population is small (15 superheroes) and the subset of females is even smaller (2 superheroes), making the calculation straightforward. I did not find any unexpected data, although it is notable that `gender_id` is fully populated across the entire dataset while `publisher_id` has a few gaps.\n\nMy updated hypothesis for the final SQL approach:\nJoin the `superhero` table to the `publisher` table using `superhero.publisher_id = publisher.id` and join the `superhero` table to the `gender` table using `superhero.gender_id = gender.id`. Filter the results where `publisher.publisher_name` is exactly 'George Lucas'. To calculate the percentage, I will use a conditional SUM of 1.0 for records where `gender.gender` is 'Female', divided by the total count of superheroes associated with that publisher, multiplied by 100.0.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "RESOLVE [OPEN-VALUE]: Check if multiple IDs exist for the same publisher name 'George Lucas'.",
+     "sql": "SELECT id, publisher_name FROM publisher WHERE publisher_name = 'George Lucas' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "id",
+      "publisher_name"
+     ],
+     "head": [
+      [
+       5,
+       "George Lucas"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "DATA INTEGRITY: Check for orphan records in superhero table where publisher_id does not exist in publisher table.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id NOT IN (SELECT id FROM publisher) AND publisher_id IS NOT NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "DATA INTEGRITY: Check for orphan records in superhero table where gender_id does not exist in gender table.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE gender_id NOT IN (SELECT id FROM gender) AND gender_id IS NOT NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "CASE SENSITIVITY TEST: Verify if 'GEORGE LUCAS' returns different results than 'George Lucas'.",
+     "sql": "SELECT COUNT(*) FROM publisher WHERE publisher_name = 'GEORGE LUCAS' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "CASE SENSITIVITY TEST: Verify if 'FEMALE' returns different results than 'Female'.",
+     "sql": "SELECT COUNT(*) FROM gender WHERE gender = 'FEMALE' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "WHITESPACE TEST: Check for leading or trailing spaces in publisher names that might affect exact matches.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '% George Lucas%' OR publisher_name LIKE '%George Lucas %' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "WHITESPACE TEST: Check for leading or trailing spaces in gender labels.",
+     "sql": "SELECT DISTINCT gender FROM gender WHERE gender LIKE '% Female%' OR gender LIKE '%Female %' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "gender"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "DISTRIBUTION CHECK: List all genders associated with George Lucas superheroes to ensure no unexpected values.",
+     "sql": "SELECT DISTINCT g.gender FROM superhero s JOIN publisher p ON s.publisher_id = p.id JOIN gender g ON s.gender_id = g.id WHERE p.publisher_name = 'George Lucas' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "gender"
+     ],
+     "head": [
+      [
+       "Male"
+      ],
+      [
+       "Female"
+      ]
+     ],
+     "row_count": 2,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "POPULATION VERIFICATION: Get the raw count of each gender for George Lucas to manually verify the percentage components.",
+     "sql": "SELECT g.gender, COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id JOIN gender g ON s.gender_id = g.id WHERE p.publisher_name = 'George Lucas' GROUP BY g.gender LIMIT 20",
+     "status": "success",
+     "columns": [
+      "gender",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       "Female",
+       2
+      ],
+      [
+       "Male",
+       13
+      ]
+     ],
+     "row_count": 2,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "SCOPE EXPANSION: Check if other publishers exist with \"Lucas\" in the name (e.g., Lucasfilm) that were missed by previous LIKE queries.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Lucas%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "NULL ANALYSIS: Verify if any superheroes created by George Lucas have a NULL gender_id despite the global check.",
+     "sql": "SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'George Lucas' AND s.gender_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "UNICITY CHECK: Check for duplicate superhero names under George Lucas to ensure we aren't double-counting individuals.",
+     "sql": "SELECT superhero_name, COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'George Lucas' GROUP BY superhero_name HAVING COUNT(*) > 1 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "COUNT(*)"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "SCHEMA VALIDATION: Confirm the data type of gender_id and publisher_id to ensure no implicit casting issues during joins.",
+     "sql": "SELECT typeof(gender_id), typeof(publisher_id) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "typeof(gender_id)",
+      "typeof(publisher_id)"
+     ],
+     "head": [
+      [
+       "integer",
+       "integer"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "DATA EXPLORATION: Check for any empty strings in the publisher table that might be mistaken for missing data.",
+     "sql": "SELECT COUNT(*) FROM publisher WHERE publisher_name = '' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       1
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "DATA EXPLORATION: Check for any empty strings in the gender table.",
+     "sql": "SELECT COUNT(*) FROM gender WHERE gender = '' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage3": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "\nYou are the director. You are reviewing the work of a junior analyst who investigated a client\nquestion by running SQL queries against the actual database.\n\nYour analyst is good but not infallible. They may have explored the right tables or the wrong ones.\nWhat they give you is raw data from the database — what columns exist, what values appeared, which\njoins worked, which failed. Your job is to use that evidence to write the final SQL.\n\nRules:\n  1. Use the analyst's query results as your evidence base. Column names, table names, join keys,\n     and filter values from PASSED queries are confirmed to exist in the database — use them exactly\n     as they appeared. Queries that FAILED with \"no such column: X\" confirm that X does not exist.\n  2. The analyst may have queried the wrong table or missed a relevant one. Consider all tables\n     the analyst touched, but also re-read the schema to check if a better path exists.\n  3. Write 5 candidates. Each candidate is your best complete answer under a different\n     interpretation of what the question is asking. The interpretations should differ in\n     meaningful ways: which tables to query, which columns to SELECT, which filters to apply,\n     how to aggregate, or what the question fundamentally means.\n\n       C1 — your primary interpretation: the answer you think is most likely correct based on\n             the question text, evidence, and analyst findings. This should be a complete,\n             production-quality query.\n       C2 — second interpretation: a structurally different reading. Perhaps a different table,\n             a different join path, or a different understanding of which column answers the\n             question (e.g., returning an ID instead of a name, or COUNT instead of a list).\n       C3 — third interpretation: another distinct reading. Could differ in aggregation logic,\n             filter scope, or SELECT shape (e.g., including the metric alongside the result).\n       C4 — fourth interpretation: explores a less obvious reading. Different grouping, an\n             additional condition implied by context, or a different column that could answer\n             the same question.\n       C5 — fifth interpretation, most elaborate: if the question could require comparing a\n             value to an aggregate (average, threshold, rank), use Nested Isolation here:\n               Inner query: compute the aggregate (AVG, MAX, COUNT, etc.)\n               Outer query: filter or join against that aggregate result\n             Pattern: SELECT col FROM t WHERE val > (SELECT AVG(val) FROM t)\n             If no aggregate comparison applies, use the most structurally different approach\n             you can justify.\n\n     Each candidate must be a complete, standalone, executable query — not a fragment or\n     simplification. Five variations of the same WHERE clause with minor tweaks is not five\n     interpretations.\n  4. Each candidate must be a complete, standalone, executable SQL query.\n  5. Different interpretations may reasonably differ in SELECT shape. For example, one\n     interpretation might return only COUNT(*), another might return COUNT(*) with the GROUP BY\n     column, and another might return the actual rows. Let each interpretation dictate its own\n     SELECT — do not artificially restrict columns across all five candidates.\n  6. Use LIMIT only when the question asks for a specific number of results (\"top 3\", \"the one\n     with the highest\"). If the question asks for a list without a count, do not use LIMIT.\n  7. You may use window functions (RANK, ROW_NUMBER, etc.) when the question requires ranking\n     within a group or ordering within a partition.\n\n  Proof-by-Cases principle:\n    C1-C5 must represent genuinely different interpretations of the question. If the correct\n    answer exists, at least one interpretation MUST capture it. Each must be structurally\n    distinct — different tables, joins, groupings, SELECT columns, or filter logic.\n\n  Exclusion Principle:\n    Every element in your SQL must be justified by either:\n      (a) the question text explicitly requiring it, or\n      (b) a PASSED query from the analyst's work confirming it exists and is relevant.\n    Do not add columns \"for context\", filters \"for safety\" (IS NOT NULL, status checks),\n    or joins \"just in case\". Unjustified additions are unproven conjectures — they narrow\n    or widen the result set beyond what was asked and cause failures.\n\n  Evidence hierarchy:\n    - PASSED queries with non-zero rows: proven facts. Use the exact column names, table\n      names, and values as they appeared.\n    - FAILED queries (errors): proven non-existence. The column or table does NOT exist\n      in that form. Do not use it.\n    - Zero-row PASSED queries: the filter combination is valid syntax but matches nothing.\n      Consider whether the filter is too restrictive.\n    - [OPEN-VALUE] / [WRONG-TABLE] tags from the analyst: unresolved conjectures. Prefer\n      alternatives that were actually confirmed.\n\nSQLite rules — non-negotiable:\n  - Column names with spaces or special characters MUST be double-quoted: \"Order Date\"\n  - Every query must begin with SELECT. Never use WITH ... AS (CTEs).\n  - Use whatever SQL structure best serves each interpretation: subqueries, window functions,\n    derived tables, or flat SELECT/JOIN/GROUP BY. The only constraint is correctness.\n  - Any query that joins two or more tables MUST assign a short alias to every table\n    (e.g. FROM movies m JOIN ratings r ON m.movie_id = r.movie_id) and MUST qualify every\n    column reference with its alias (e.g. m.movie_title, not just movie_title). Unqualified\n    column references in multi-table queries are ambiguous and will cause runtime errors.\n\nOutput format:\n## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: [what this reading assumes about the question]\nSELECT t1.col FROM t1 JOIN t2 ON t1.id = t2.fk WHERE t1.filter = value\n\n2. -- Second interpretation: [how this differs from C1]\nSELECT t1.id FROM t1 WHERE t1.different_filter = value\n\n3. -- Third interpretation: [what this captures that C1-C2 miss]\nSELECT t1.col, COUNT(*) FROM t1 GROUP BY t1.col\n\n4. -- Fourth interpretation: [alternative approach]\nSELECT t1.col FROM t1 JOIN t3 ON t1.id = t3.fk WHERE t3.filter = value\n\n5. -- Fifth interpretation: [most elaborate or aggregate-comparison approach]\nSELECT t1.col FROM t1 WHERE t1.val > (SELECT AVG(t2.val) FROM t1 t2)\n\nFormat rules:\n  - Numbered 1 through 5 exactly.\n  - Candidate 1 MUST start with \"1. --\" on its own line — never output the first candidate\n    as raw unnumbered SQL.\n  - Comment on same line as the number, starting with --.\n  - SQL starts on the next line, beginning with SELECT.\n  - Blank line between candidates.\n  - No markdown code fences. No bold. No extra headers.\n",
+   "user_prompt": "Question: Among all superheroes created by George Lucas, identify the percentage of female superheroes.\nEvidence: created by George Lucas refers to publisher_name = 'George Lucas'; percentage = MULTIPLY(DIVIDE(SUM(gender = 'Female' WHERE publisher_name = 'George Lucas'), COUNT(publisher_name = 'George Lucas')), 100.0); female refers to gender = 'Female';\n\nDatabase: superhero\n\n---\nANALYST WORK PRODUCT\n\nStage 1 — What was checked and what was found:\n1. Checked: EXISTENCE LEMMA: Confirm that 'George Lucas' exists as a distinct value in the publisher table.\n   Result: publisher_name: \n   (20 rows total)\n\n2. Checked: EXISTENCE LEMMA: Confirm that 'Female' exists as a distinct value in the gender table.\n   Result: gender: Male\n   (3 rows total)\n\n3. Checked: COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to determine if it is suitable for filtering.\n   Result: nulls: 3 | total: 750\n\n4. Checked: COLUMN SUITABILITY PROOF: Check for nulls in gender_id to determine if it is suitable for aggregation.\n   Result: nulls: 0 | total: 750\n\n5. Checked: AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes in the database.\n   Result: COUNT(*): 750\n\n6. Checked: EXISTENCE LEMMA: Check for any naming variations of George Lucas to ensure no data is missed.\n   Result: publisher_name: George Lucas\n\n7. Checked: EXISTENCE LEMMA: Check for any naming variations of Female gender labels.\n   Result: gender: Female\n\n8. Checked: SCOPE PROOF: Determine the total number of superheroes created by George Lucas to establish the denominator.\n   Result: COUNT(*): 15\n\n9. Checked: SCOPE PROOF: Determine the number of female superheroes created by George Lucas to establish the numerator.\n   Result: COUNT(*): 2\n\n10. Checked: CONNECTIVITY LEMMA: Verify the join key values on the superhero side for publishers.\n   Result: publisher_id: 13\n   (5 rows total)\n\n11. Checked: CONNECTIVITY LEMMA: Verify the join key values on the publisher side.\n   Result: id: 1\n   (5 rows total)\n\n12. Checked: CONNECTIVITY LEMMA: Verify the join key values on the superhero side for gender.\n   Result: gender_id: 1\n   (3 rows total)\n\n13. Checked: CONNECTIVITY LEMMA: Verify the join key values on the gender side.\n   Result: id: 1\n   (3 rows total)\n\n14. Checked: SCOPE PROOF: Check if any superheroes have a NULL publisher to see if they are excluded from the 'George Lucas' set.\n   Result: COUNT(*): 3\n\n15. Checked: SCOPE PROOF: Check if any superheroes have a NULL gender to see how it affects the percentage calculation.\n   Result: COUNT(*): 0\n\n\nStage 2 — Hypothesis verdict (Phase 4):\n1. Assumption: The value for publisher is stored exactly as 'George Lucas'. [CONFIRMED] Query 6 proves this exact string exists and is the only one containing \"Lucas\".\n2. Assumption: The label used for female gender is 'Female'. [CONFIRMED] Query 7 proves this exact string exists.\n3. Assumption: Only 'George Lucas' is required, no other variations. [CONFIRMED] Query 6 showed no other variations of the name in the publisher table.\n4. Assumption: Some records may have NULL values for foreign keys. [CONFIRMED] Query 3 and 14 prove there are 3 superheroes with NULL publisher_id.\n5. Assumption: The denominator is the total count of superheroes created by George Lucas regardless of gender recording. [CONFIRMED] Query 8 establishes this population (15) independently of the gender filter in Query 9.\n6. Assumption: Filtering should be done on descriptive labels rather than IDs. [CONFIRMED] Queries 8 and 9 successfully used labels to isolate the target population.\n7. Assumption: The publisher table has a `publisher_name` column. [CONFIRMED] Query 1 proves this.\n8. Assumption: The gender table has a `gender` column. [CONFIRMED] Query 2 proves this.\n9. Assumption: The `superhero` table contains `publisher_id` and `gender_id`. [CONFIRMED] Queries 10 and 12 prove these columns exist and contain data.\n10. Assumption: I must check for NULLs in `superhero.publisher_id` and `superhero.gender_id`. [CONFIRMED] Query 3 (publisher_id has 3 nulls) and Query 4 (gender_id has 0 nulls).\n11. Assumption: The join path is superhero -> publisher and superhero -> gender. [CONFIRMED] Queries 8 and 9 prove this connectivity works to return results.\n12. Assumption: There are no multiple entries for the same publisher name that would complicate ID lookup. [OPEN-VALUE] Query 1 used DISTINCT on the name, but did not check if multiple unique IDs share the same name 'George Lucas'.\n\nStage 2 — Winning hypothesis (Phase 4b):\nYES, the original hypothesis holds. The query results confirm that the target population is small (15 superheroes) and the subset of females is even smaller (2 superheroes), making the calculation straightforward. I did not find any unexpected data, although it is notable that `gender_id` is fully populated across the entire dataset while `publisher_id` has a few gaps.\n\nMy updated hypothesis for the final SQL approach:\nJoin the `superhero` table to the `publisher` table using `superhero.publisher_id = publisher.id` and join the `superhero` table to the `gender` table using `superhero.gender_id = gender.id`. Filter the results where `publisher.publisher_name` is exactly 'George Lucas'. To calculate the percentage, I will use a conditional SUM of 1.0 for records where `gender.gender` is 'Female', divided by the total count of superheroes associated with that publisher, multiplied by 100.0.\n\nStage 2 — Confirmation checks and what was found:\n1. Checked: RESOLVE [OPEN-VALUE]: Check if multiple IDs exist for the same publisher name 'George Lucas'.\n   Result: id: 5 | publisher_name: George Lucas\n\n2. Checked: DATA INTEGRITY: Check for orphan records in superhero table where publisher_id does not exist in publisher table.\n   Result: COUNT(*): 0\n\n3. Checked: DATA INTEGRITY: Check for orphan records in superhero table where gender_id does not exist in gender table.\n   Result: COUNT(*): 0\n\n4. Checked: CASE SENSITIVITY TEST: Verify if 'GEORGE LUCAS' returns different results than 'George Lucas'.\n   Result: COUNT(*): 0\n\n5. Checked: CASE SENSITIVITY TEST: Verify if 'FEMALE' returns different results than 'Female'.\n   Result: COUNT(*): 0\n\n6. Checked: WHITESPACE TEST: Check for leading or trailing spaces in publisher names that might affect exact matches.\n   Result: (no rows returned)\n\n7. Checked: WHITESPACE TEST: Check for leading or trailing spaces in gender labels.\n   Result: (no rows returned)\n\n8. Checked: DISTRIBUTION CHECK: List all genders associated with George Lucas superheroes to ensure no unexpected values.\n   Result: gender: Male\n   (2 rows total)\n\n9. Checked: POPULATION VERIFICATION: Get the raw count of each gender for George Lucas to manually verify the percentage components.\n   Result: gender: Female | COUNT(*): 2\n   (2 rows total)\n\n10. Checked: SCOPE EXPANSION: Check if other publishers exist with \"Lucas\" in the name (e.g., Lucasfilm) that were missed by previous LIKE queries.\n   Result: publisher_name: George Lucas\n\n11. Checked: NULL ANALYSIS: Verify if any superheroes created by George Lucas have a NULL gender_id despite the global check.\n   Result: COUNT(*): 0\n\n12. Checked: UNICITY CHECK: Check for duplicate superhero names under George Lucas to ensure we aren't double-counting individuals.\n   Result: (no rows returned)\n\n13. Checked: SCHEMA VALIDATION: Confirm the data type of gender_id and publisher_id to ensure no implicit casting issues during joins.\n   Result: typeof(gender_id): integer | typeof(publisher_id): integer\n\n14. Checked: DATA EXPLORATION: Check for any empty strings in the publisher table that might be mistaken for missing data.\n   Result: COUNT(*): 1\n\n15. Checked: DATA EXPLORATION: Check for any empty strings in the gender table.\n   Result: COUNT(*): 0\n\n\n---\nWrite 5 candidate SQL queries sweeping from the least to the most work required to answer the question.",
+   "response": "## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: Calculate percentage using conditional aggregation within a single join path.\nSELECT 100.0 * SUM(CASE WHEN g.gender = 'Female' THEN 1 ELSE 0 END) / COUNT(*)\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN gender g ON s.gender_id = g.id\nWHERE p.publisher_name = 'George Lucas'\n\n2. -- Second interpretation: Use a scalar subquery to determine the total population (denominator) and filter the main query for females (numerator).\nSELECT (COUNT(*) * 100.0) / (SELECT COUNT(*) FROM superhero s2 JOIN publisher p2 ON s2.publisher_id = p2.id WHERE p2.publisher_name = 'George Lucas')\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN gender g ON s.gender_id = g.id\nWHERE p.publisher_name = 'George Lucas' AND g.gender = 'Female'\n\n3. -- Third interpretation: Use the AVG function on a binary 100/0 scale to compute the percentage directly.\nSELECT AVG(CASE WHEN g.gender = 'Female' THEN 100.0 ELSE 0.0 END)\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN gender g ON s.gender_id = g.id\nWHERE p.publisher_name = 'George Lucas'\n\n4. -- Fourth interpretation: Avoid JOINs in the main query, using nested IN clauses to isolate IDs for both filters.\nSELECT (COUNT(*) * 100.0) / (SELECT COUNT(*) FROM superhero WHERE publisher_id IN (SELECT id FROM publisher WHERE publisher_name = 'George Lucas'))\nFROM superhero\nWHERE gender_id IN (SELECT id FROM gender WHERE gender = 'Female')\nAND publisher_id IN (SELECT id FROM publisher WHERE publisher_name = 'George Lucas')\n\n5. -- Fifth interpretation: Most elaborate approach using a derived table to first aggregate counts, then calculating the ratio in the outer query.\nSELECT (CAST(t.female_count AS FLOAT) * 100.0 / t.total_count)\nFROM (\n    SELECT \n        SUM(CASE WHEN g.gender = 'Female' THEN 1 ELSE 0 END) AS female_count, \n        COUNT(*) AS total_count\n    FROM superhero s\n    JOIN publisher p ON s.publisher_id = p.id\n    JOIN gender g ON s.gender_id = g.id\n    WHERE p.publisher_name = 'George Lucas'\n) t",
+   "candidates": [
+    {
+     "n": 1,
+     "comment": "Primary interpretation: Calculate percentage using conditional aggregation within a single join path.",
+     "sql": "SELECT 100.0 * SUM(CASE WHEN g.gender = 'Female' THEN 1 ELSE 0 END) / COUNT(*)\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN gender g ON s.gender_id = g.id\nWHERE p.publisher_name = 'George Lucas'",
+     "status": "success",
+     "columns": [
+      "100.0 * SUM(CASE WHEN g.gender = 'Female' THEN 1 ELSE 0 END) / COUNT(*)"
+     ],
+     "rows": [
+      [
+       13.333333333333334
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 2,
+     "comment": "Second interpretation: Use a scalar subquery to determine the total population (denominator) and filter the main query for females (numerator).",
+     "sql": "SELECT (COUNT(*) * 100.0) / (SELECT COUNT(*) FROM superhero s2 JOIN publisher p2 ON s2.publisher_id = p2.id WHERE p2.publisher_name = 'George Lucas')\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN gender g ON s.gender_id = g.id\nWHERE p.publisher_name = 'George Lucas' AND g.gender = 'Female'",
+     "status": "success",
+     "columns": [
+      "(COUNT(*) * 100.0) / (SELECT COUNT(*) FROM superhero s2 JOIN publisher p2 ON s2.publisher_id = p2.id WHERE p2.publisher_name = 'George Lucas')"
+     ],
+     "rows": [
+      [
+       13.333333333333334
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 3,
+     "comment": "Third interpretation: Use the AVG function on a binary 100/0 scale to compute the percentage directly.",
+     "sql": "SELECT AVG(CASE WHEN g.gender = 'Female' THEN 100.0 ELSE 0.0 END)\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN gender g ON s.gender_id = g.id\nWHERE p.publisher_name = 'George Lucas'",
+     "status": "success",
+     "columns": [
+      "AVG(CASE WHEN g.gender = 'Female' THEN 100.0 ELSE 0.0 END)"
+     ],
+     "rows": [
+      [
+       13.333333333333334
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 4,
+     "comment": "Fourth interpretation: Avoid JOINs in the main query, using nested IN clauses to isolate IDs for both filters.",
+     "sql": "SELECT (COUNT(*) * 100.0) / (SELECT COUNT(*) FROM superhero WHERE publisher_id IN (SELECT id FROM publisher WHERE publisher_name = 'George Lucas'))\nFROM superhero\nWHERE gender_id IN (SELECT id FROM gender WHERE gender = 'Female')\nAND publisher_id IN (SELECT id FROM publisher WHERE publisher_name = 'George Lucas')",
+     "status": "success",
+     "columns": [
+      "(COUNT(*) * 100.0) / (SELECT COUNT(*) FROM superhero WHERE publisher_id IN (SELECT id FROM publisher WHERE publisher_name = 'George Lucas'))"
+     ],
+     "rows": [
+      [
+       13.333333333333334
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 5,
+     "comment": "Fifth interpretation: Most elaborate approach using a derived table to first aggregate counts, then calculating the ratio in the outer query.",
+     "sql": "SELECT (CAST(t.female_count AS FLOAT) * 100.0 / t.total_count)\nFROM (\n    SELECT \n        SUM(CASE WHEN g.gender = 'Female' THEN 1 ELSE 0 END) AS female_count, \n        COUNT(*) AS total_count\n    FROM superhero s\n    JOIN publisher p ON s.publisher_id = p.id\n    JOIN gender g ON s.gender_id = g.id\n    WHERE p.publisher_name = 'George Lucas'\n) t",
+     "status": "success",
+     "columns": [
+      "(CAST(t.female_count AS FLOAT) * 100.0 / t.total_count)"
+     ],
+     "rows": [
+      [
+       13.333333333333334
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    }
+   ],
+   "chosen": 1,
+   "gold_result": {
+    "columns": [
+     "CAST(COUNT(CASE WHEN T3.gender = 'Female' THEN 1 ELSE NULL END) AS REAL) * 100 / COUNT(T1.id)"
+    ],
+    "rows": [
+     [
+      13.333333333333334
+     ]
+    ],
+    "row_count": 1
+   }
+  }
+ },
+ "elapsed_s": 588.4,
+ "difficulty": "challenging",
+ "single_shot_model": "google/gemma-4-31b",
+ "single_shot": {
+  "no_evidence": {
+   "include_evidence": false,
+   "system_prompt": "You are an expert data analyst who writes SQLite queries. Given a database schema and a question, write ONE SQLite SELECT query that answers it. Use only tables and columns that appear in the schema. Output the query and nothing else — no explanation, no markdown fences.",
+   "user_prompt": "Schema:\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nQuestion: Among all superheroes created by George Lucas, identify the percentage of female superheroes.\n\nWrite the SQLite query:",
+   "sql": "SELECT 100.0 * SUM(CASE WHEN T3.gender = 'Female' THEN 1 ELSE 0 END) / COUNT(*) FROM superhero AS T1 JOIN publisher AS T2 ON T1.publisher_id = T2.id JOIN gender AS T3 ON T1.gender_id = T3.id WHERE T2.publisher_name = 'George Lucas'",
+   "status": "success",
+   "columns": [
+    "100.0 * SUM(CASE WHEN T3.gender = 'Female' THEN 1 ELSE 0 END) / COUNT(*)"
+   ],
+   "rows": [
+    [
+     13.333333333333334
+    ]
+   ],
+   "row_count": 1,
+   "truncated": false,
+   "error": null,
+   "matches_gold": true
+  },
+  "with_evidence": {
+   "include_evidence": true,
+   "system_prompt": "You are an expert data analyst who writes SQLite queries. Given a database schema and a question, write ONE SQLite SELECT query that answers it. Use only tables and columns that appear in the schema. Output the query and nothing else — no explanation, no markdown fences.",
+   "user_prompt": "Schema:\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nQuestion: Among all superheroes created by George Lucas, identify the percentage of female superheroes.\nHint: created by George Lucas refers to publisher_name = 'George Lucas'; percentage = MULTIPLY(DIVIDE(SUM(gender = 'Female' WHERE publisher_name = 'George Lucas'), COUNT(publisher_name = 'George Lucas')), 100.0); female refers to gender = 'Female';\n\nWrite the SQLite query:",
+   "sql": "SELECT 100.0 * SUM(CASE WHEN T3.gender = 'Female' THEN 1 ELSE 0 END) / COUNT(*) FROM superhero AS T1 JOIN publisher AS T2 ON T1.publisher_id = T2.id JOIN gender AS T3 ON T1.gender_id = T3.id WHERE T2.publisher_name = 'George Lucas'",
+   "status": "success",
+   "columns": [
+    "100.0 * SUM(CASE WHEN T3.gender = 'Female' THEN 1 ELSE 0 END) / COUNT(*)"
+   ],
+   "rows": [
+    [
+     13.333333333333334
+    ]
+   ],
+   "row_count": 1,
+   "truncated": false,
+   "error": null,
+   "matches_gold": true
+  }
+ },
+ "stages_noev": {
+  "stage1": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Today is your first day at a new company.\n\nNormally this work takes three days. You do not have three days. You have to do it all today.\n\nHere is how you think through a new client question:\n\nPHASE 1 — Before you look at anything:\nYou read the question and evidence first, with the schema face-down. You write out every question\nyou would want answered and every assumption you are making. You are a philosopher — you think in\nwho, what, when, where, by whom, for whom. You think in counter-proofs. What would make an\nassumption wrong? What encoding or edge case breaks the obvious reading? Stating a wrong assumption\nexplicitly is more honest and useful than a vague non-answer.\n\nPHASE 2 — You look at the schema:\nThe data dictionary arrives: table names, column names, types, primary keys, and foreign key\nrelationships. You do NOT get statistics — no min, max, null counts, or sample values. That is\nwhat Phase 3 is for. Some of your Phase 1 assumptions will be confirmed. Some will be wrong. Some\nnew questions will appear that you could not have thought of without seeing the actual column names.\nYou update every assumption. You tag each question.\n\nPHASE 3 — You write exploratory SQL:\nYou have database access. You are excited and thorough. You know that being new means you earn trust\nby being rigorous, not reckless. You have two phases of thinking behind you — now you turn that into\nexploratory SQL. Write at least 15 queries. The system will reject outputs with fewer than 5 —\nthose records will be skipped entirely and the question will not advance to the next stage.\n\nYou have six proof obligations:\n\n1. EXISTENCE LEMMA (DISTINCT probes):\n   For every categorical column you plan to filter on, run SELECT DISTINCT col FROM table LIMIT 20.\n   This is a direct proof of existence — it proves which values actually live in the database.\n   Without this proof, any filter using that column is an ungrounded conjecture. The system will\n   treat unproven filter values as errors in Stage 2.\n\n2. CONNECTIVITY LEMMA (join verification):\n   Before writing any multi-table JOIN, prove the join path works. Run a query on each side of the\n   join key: SELECT DISTINCT join_col FROM table_a LIMIT 5 and SELECT DISTINCT join_col FROM table_b\n   LIMIT 5. If both return values and they overlap, the join is proven. If either returns zero rows\n   or different types, the join is disproven — do not use it.\n\n3. AXIOMATIC NEUTRALITY (contrapositive for filters):\n   Do not add status, active/inactive, or any other filter unless the question explicitly mentions\n   it. Assume the contrapositive: if the question does not mention a constraint, its absence is\n   correct until you prove otherwise. Run at least one query WITHOUT any assumed filter to establish\n   the unfiltered baseline.\n\n4. COLUMN SUITABILITY PROOFS (null-count & scope):\n   Before using any column for aggregation (COUNT, AVG, SUM, MAX, MIN), run a null-count query:\n   SELECT COUNT(*) - COUNT(col) as nulls, COUNT(*) as total FROM table.\n   If nulls exceed 50% of total, that column is statistically unsuitable as a primary metric —\n   look for alternatives. After identifying your primary filter value, run TWO scope queries:\n   (a) one query WITHOUT the filter — note the total row count (unfiltered universe).\n   (b) one query WITH the filter — note the filtered row count.\n   Compare: if filtered count equals unfiltered count, the filter is a no-op and likely wrong.\n   If filtered count is zero, the value does not exist. Both indicate a scope mismatch.\n\n5. ANNOTATION LEMMA (semantic mapping of opaque columns):\n   If the schema contains column names that are short codes, single letters, abbreviations, or\n   numeric identifiers (e.g., col1, X, stat, code_a), you cannot assume their meaning from the\n   name alone. For every such opaque column that could be relevant to the question, run:\n   SELECT DISTINCT col FROM table LIMIT 20\n   Then annotate each with its apparent meaning based on the values returned. Format your comment:\n   \"ANNOTATION LEMMA: col_name appears to be [description] (values: val1, val2, val3)\"\n   This is a direct proof of semantic identity — without it, any use of an opaque column is an\n   ungrounded assumption about what the column contains.\n\n6. JOIN VERIFICATION (non-key joins):\n   The schema marks primary keys [PK] and foreign keys [FK]. If you plan to join two tables on\n   a column that is NOT marked as a PK or FK, you must prove the join is valid by querying both\n   sides: SELECT DISTINCT col FROM table_a LIMIT 5 and SELECT DISTINCT col FROM table_b LIMIT 5.\n   If the values do not overlap, the join is invalid. PK/FK joins are pre-verified by the schema.\n\nAdditional rules:\n- Multi-part question decomposition: Before writing any Phase 1 assumptions, read the\n  question and ask: does it contain multiple distinct sub-questions? A multi-part question\n  typically uses connectors like \"and\", \"also\", \"as well as\", or asks for two different\n  pieces of information in one sentence (e.g. \"What is X? What is Y for Z?\"). If yes,\n  list each sub-question separately in Phase 1 and treat them as independent proof obligations.\n  Your Phase 3 queries must cover every part — a query that only answers one part of a\n  multi-part question is incomplete. The final SQL must return all parts in a single query\n  (using JOIN, subquery, or multiple SELECT expressions as appropriate).\n- Cover all tables that could relate to the question, not just the most obvious one.\n- SELECT only the columns needed for each specific check — no extra \"context\" columns.\n- Identifier Precision: Determine whether the question asks for a primary identifier\n  (ID, code, number) or a descriptive label (name, title, description). If both columns exist\n  side by side in the same table, run a DISTINCT query on each. Your Phase 1 assumptions must\n  explicitly state which column type the question wants. This prevents the Director from\n  guessing at the SELECT column later.\n- Each query has exactly one SQL comment (-- ...) that is a single complete sentence explaining\n  why this specific piece of information matters for answering the client question.\n- Always use LIMIT. Check both heads and tails for any table you are uncertain about.\n- Do NOT write the final answer query — that comes after you see what these return.\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\nA numbered list. For each item: state the question, then immediately state your current assumption.\nAssumptions can be wrong — that is expected and useful.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, explaining why these are the\nright questions to ask.\n\n## PHASE 2 — SCHEMA REVIEW\nA numbered list. For each item from Phase 1, mark it with exactly one tag:\n  [CONFIRMED] — the profile supports your Phase 1 assumption\n  [REVISED]   — you need to update your assumption based on what you see\n  [NEW]       — a question that did not exist in Phase 1, raised by the schema or statistics\n  [DROPPED]   — this question is no longer relevant given what the profile shows\n\nAfter the tag, give a brief one-sentence reason.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, describing what the profile\nrevealed and what still requires direct database investigation.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\nA numbered list of SQL queries. Minimum 15 queries.\n\nSQLite rules — this is non-negotiable:\n- The database engine is SQLite. Write only SQL that SQLite supports.\n- Column names that contain spaces, parentheses, or special characters MUST be\n  wrapped in double quotes. Example: \"County Name\", \"Free Meal Count (K-12)\".\n  Never write an unquoted column name that contains a space.\n- Do not use window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.).\n- Always use LIMIT.\n- Do NOT write the final answer query.\n\nOutput format for Phase 3 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the department_type column.\n   SELECT DISTINCT department_type FROM departments LIMIT 20;\n\n2. -- SCOPE CHECK: Establish the time range covered by the data.\n   SELECT MIN(hire_date), MAX(hire_date) FROM employees LIMIT 1;\n\n3. -- NULL-COUNT PROOF: Verify salary column suitability for aggregation.\n   SELECT COUNT(*) - COUNT(salary) as nulls, COUNT(*) as total FROM employees LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between employees and departments.\n   SELECT DISTINCT department_id FROM employees LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Other side of the join.\n   SELECT DISTINCT id FROM departments LIMIT 5;\n\n6. -- ANNOTATION LEMMA: Determine what opaque column 'dept_code' actually contains.\n   SELECT DISTINCT dept_code FROM departments LIMIT 20;\n\n7. -- JOIN VERIFICATION: Verify non-key join between employees.role and roles.role_name.\n   SELECT DISTINCT role FROM employees LIMIT 5;\n\n8. -- SCOPE PROOF: Unfiltered universe count for the target table.\n   SELECT COUNT(*) FROM employees LIMIT 1;\n\n9. -- SCOPE PROOF: Filtered count — verify filter narrows to expected scope.\n   SELECT COUNT(*) FROM employees WHERE department_type = 'Engineering' LIMIT 1;",
+   "user_prompt": "A new client question just arrived on your desk.\n\nQuestion: Among all superheroes created by George Lucas, identify the percentage of female superheroes.\n\nDatabase: superhero\n\nSchema (table names, column names, types, primary keys, foreign keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nWork through all three phases now.",
+   "response": "## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\n\n1. How is \"George Lucas\" represented in the database? Assumption: He is listed as a value in the `publisher_name` column of the `publisher` table.\n2. What is the exact string used to identify female superheroes? Assumption: The `gender` column in the `gender` table uses the value 'Female'.\n3. Does \"created by\" map strictly to the publisher, or could it be an attribute? Assumption: It maps to the `publisher_id` foreign key in the `superhero` table.\n4. Which identifier is required for the final result? Assumption: The question asks for a percentage (a numeric value), not a list of names or IDs.\n5. Are there multiple entries for the same superhero that could skew the percentage? Assumption: Each row in the `superhero` table represents a unique entity.\n\nREASONING:\nI must first determine where creator information is stored as there is no explicit \"creator\" table.\nThe gender mapping needs verification to avoid filtering out valid female characters due to naming conventions.\nA percentage calculation requires two distinct counts: the total for the creator and the subset that is female.\nI need to investigate if \"George Lucas\" appears under a different name, such as a company he owns.\nVerifying the join paths between superheroes, publishers, and genders is critical for data integrity.\n\n## PHASE 2 — SCHEMA REVIEW\n\n1. [CONFIRMED] The `publisher` table contains `publisher_name`, which is the most likely location for \"George Lucas\".\n2. [CONFIRMED] The `gender` table exists with a `gender` text column to define female superheroes.\n3. [REVISED] While `publisher_id` is available, I should also check the `attribute` and `hero_attribute` tables to see if \"Creator\" is stored as a specific attribute.\n4. [CONFIRMED] The request for a percentage implies a calculation based on counts of IDs from the `superhero` table.\n5. [CONFIRMED] The `superhero` table has a primary key `id`, which allows for distinct counting.\n\nREASONING:\nThe schema confirms a standard relational structure linking superheroes to their publisher and gender.\nI have identified that I must join three tables (superhero, publisher, gender) to answer the question.\nThe existence of an `attribute` table introduces a possibility that \"created by\" is not synonymous with \"publisher\".\nNull values in `gender_id` or `publisher_id` could impact the denominator of the percentage calculation.\nI need to verify if George Lucas exists as a literal string or if his works are under a corporate banner.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\n\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the publisher_name column to find George Lucas.\n   SELECT DISTINCT publisher_name FROM publisher LIMIT 20;\n\n2. -- EXISTENCE PROOF: Confirm how female gender is labeled in the gender table.\n   SELECT DISTINCT gender FROM gender LIMIT 20;\n\n3. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and publisher.\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5;\n\n4. -- CONNECTIVITY LEMMA: Other side of the join for publishers.\n   SELECT DISTINCT id FROM publisher LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and gender.\n   SELECT DISTINCT gender_id FROM superhero LIMIT 5;\n\n6. -- CONNECTIVITY LEMMA: Other side of the join for genders.\n   SELECT DISTINCT id FROM gender LIMIT 5;\n\n7. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\n   SELECT COUNT(*) FROM superhero LIMIT 1;\n\n8. -- COLUMN SUITABILITY PROOF: Verify if gender_id has too many nulls to be a reliable metric.\n   SELECT COUNT(*) - COUNT(gender_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n9. -- COLUMN SUITABILITY PROOF: Verify if publisher_id has too many nulls to be a reliable filter.\n   SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n10. -- SCOPE PROOF: Check the count of superheroes specifically assigned to George Lucas.\n    SELECT COUNT(*) FROM superhero WHERE publisher_id IN (SELECT id FROM publisher WHERE publisher_name = 'George Lucas') LIMIT 1;\n\n11. -- SCOPE PROOF: Check the count of all female superheroes in the database.\n    SELECT COUNT(*) FROM superhero WHERE gender_id IN (SELECT id FROM gender WHERE gender = 'Female') LIMIT 1;\n\n12. -- EXISTENCE PROOF: Search for variations of Lucas in the publisher table to ensure no missing data.\n    SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Lucas%' LIMIT 20;\n\n13. -- EXISTENCE PROOF: Search for variations of Female in the gender table.\n    SELECT DISTINCT gender FROM gender WHERE gender LIKE '%Fem%' LIMIT 20;\n\n14. -- COLUMN SUITABILITY PROOF: Check for nulls in the publisher_name column itself.\n    SELECT COUNT(*) - COUNT(publisher_name) as nulls, COUNT(*) as total FROM publisher LIMIT 1;\n\n15. -- COLUMN SUITABILITY PROOF: Check for nulls in the gender text column.\n    SELECT COUNT(*) - COUNT(gender) as nulls, COUNT(*) as total FROM gender LIMIT 1;\n\n16. -- ANNOTATION LEMMA: Check if 'Creator' or similar terms exist as attributes instead of publishers.\n    SELECT DISTINCT attribute_name FROM attribute LIMIT 20;",
+   "phase1": "1. How is \"George Lucas\" represented in the database? Assumption: He is listed as a value in the `publisher_name` column of the `publisher` table.\n2. What is the exact string used to identify female superheroes? Assumption: The `gender` column in the `gender` table uses the value 'Female'.\n3. Does \"created by\" map strictly to the publisher, or could it be an attribute? Assumption: It maps to the `publisher_id` foreign key in the `superhero` table.\n4. Which identifier is required for the final result? Assumption: The question asks for a percentage (a numeric value), not a list of names or IDs.\n5. Are there multiple entries for the same superhero that could skew the percentage? Assumption: Each row in the `superhero` table represents a unique entity.\n\nREASONING:\nI must first determine where creator information is stored as there is no explicit \"creator\" table.\nThe gender mapping needs verification to avoid filtering out valid female characters due to naming conventions.\nA percentage calculation requires two distinct counts: the total for the creator and the subset that is female.\nI need to investigate if \"George Lucas\" appears under a different name, such as a company he owns.\nVerifying the join paths between superheroes, publishers, and genders is critical for data integrity.",
+   "phase2": "1. [CONFIRMED] The `publisher` table contains `publisher_name`, which is the most likely location for \"George Lucas\".\n2. [CONFIRMED] The `gender` table exists with a `gender` text column to define female superheroes.\n3. [REVISED] While `publisher_id` is available, I should also check the `attribute` and `hero_attribute` tables to see if \"Creator\" is stored as a specific attribute.\n4. [CONFIRMED] The request for a percentage implies a calculation based on counts of IDs from the `superhero` table.\n5. [CONFIRMED] The `superhero` table has a primary key `id`, which allows for distinct counting.\n\nREASONING:\nThe schema confirms a standard relational structure linking superheroes to their publisher and gender.\nI have identified that I must join three tables (superhero, publisher, gender) to answer the question.\nThe existence of an `attribute` table introduces a possibility that \"created by\" is not synonymous with \"publisher\".\nNull values in `gender_id` or `publisher_id` could impact the denominator of the percentage calculation.\nI need to verify if George Lucas exists as a literal string or if his works are under a corporate banner.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "EXISTENCE PROOF: Confirm what distinct values exist in the publisher_name column to find George Lucas.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       ""
+      ],
+      [
+       "ABC Studios"
+      ],
+      [
+       "Dark Horse Comics"
+      ],
+      [
+       "DC Comics"
+      ],
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "EXISTENCE PROOF: Confirm how female gender is labeled in the gender table.",
+     "sql": "SELECT DISTINCT gender FROM gender LIMIT 20",
+     "status": "success",
+     "columns": [
+      "gender"
+     ],
+     "head": [
+      [
+       "Male"
+      ],
+      [
+       "Female"
+      ],
+      [
+       "N/A"
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between superhero and publisher.",
+     "sql": "SELECT DISTINCT publisher_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "publisher_id"
+     ],
+     "head": [
+      [
+       13
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       15
+      ],
+      [
+       25
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "CONNECTIVITY LEMMA: Other side of the join for publishers.",
+     "sql": "SELECT DISTINCT id FROM publisher LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "CONNECTIVITY LEMMA: Verify join key overlap between superhero and gender.",
+     "sql": "SELECT DISTINCT gender_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "gender_id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "CONNECTIVITY LEMMA: Other side of the join for genders.",
+     "sql": "SELECT DISTINCT id FROM gender LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.",
+     "sql": "SELECT COUNT(*) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "COLUMN SUITABILITY PROOF: Verify if gender_id has too many nulls to be a reliable metric.",
+     "sql": "SELECT COUNT(*) - COUNT(gender_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "COLUMN SUITABILITY PROOF: Verify if publisher_id has too many nulls to be a reliable filter.",
+     "sql": "SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       3,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "SCOPE PROOF: Check the count of superheroes specifically assigned to George Lucas.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id IN (SELECT id FROM publisher WHERE publisher_name = 'George Lucas') LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       15
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "SCOPE PROOF: Check the count of all female superheroes in the database.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE gender_id IN (SELECT id FROM gender WHERE gender = 'Female') LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       203
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "EXISTENCE PROOF: Search for variations of Lucas in the publisher table to ensure no missing data.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Lucas%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "EXISTENCE PROOF: Search for variations of Female in the gender table.",
+     "sql": "SELECT DISTINCT gender FROM gender WHERE gender LIKE '%Fem%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "gender"
+     ],
+     "head": [
+      [
+       "Female"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in the publisher_name column itself.",
+     "sql": "SELECT COUNT(*) - COUNT(publisher_name) as nulls, COUNT(*) as total FROM publisher LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       25
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in the gender text column.",
+     "sql": "SELECT COUNT(*) - COUNT(gender) as nulls, COUNT(*) as total FROM gender LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       3
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "16",
+     "comment": "ANNOTATION LEMMA: Check if 'Creator' or similar terms exist as attributes instead of publishers.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [
+      [
+       "Intelligence"
+      ],
+      [
+       "Strength"
+      ],
+      [
+       "Speed"
+      ],
+      [
+       "Durability"
+      ],
+      [
+       "Power"
+      ]
+     ],
+     "row_count": 6,
+     "error": null
+    }
+   ],
+   "n_queries": 16,
+   "n_success": 16
+  },
+  "stage2": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Yesterday you worked through a client question in three phases:\nPhase 1 — questions and assumptions written before seeing the schema.\nPhase 2 — schema review, assumptions updated against column profiles.\nPhase 3 — exploratory SQL queries written to investigate the data.\n\nNow the queries have run. You have the results in front of you.\n\nYour job today is three phases:\n\nPHASE 4 — REVISED ASSUMPTIONS\nGo through every assumption you made in Phases 1 and 2. For each one, state what the query results show.\nTag each item with exactly one of:\n  [CONFIRMED]    — a PASSED query directly proves this assumption. Cite the query number.\n  [REVISED]      — results partially support but require adjustment. State what changed and why.\n  [CONTRADICTED] — a query returned zero rows, an error, or unexpected data that disproves this\n                   hypothesis. This is not a failure — it is a proof by contradiction. State clearly\n                   what was disproven and what it implies.\n  [OPEN-VALUE]   — an assumption involves a string filter value that was NEVER confirmed with a\n                   SELECT DISTINCT query. This is an open conjecture — the Director cannot use it.\n                   Phase 5 MUST include a DISTINCT query to resolve it.\n  [WRONG-TABLE]  — query results suggest the data does not live in the assumed table (column doesn't\n                   exist, zero rows where many were expected, data type mismatch). The hypothesis\n                   about which table to use is disproven. Phase 5 must explore the alternative.\n  [LIKE-VS-ENUM] — the analyst used LIKE or a substring match on a name/description column, but\n                   the schema may contain a separate coded or enum column for the same concept\n                   (e.g., filtering by name string when a type_code column exists). Phase 5 MUST\n                   include a DISTINCT query on the potential enum column to check if it provides\n                   a cleaner, exact-match filter.\n\nAfter the tag, write one sentence citing which query result led to this conclusion.\n\nContrapositive test for filters: For each filter in your hypothesis, apply the contrapositive test:\n\"If the question does not explicitly mention this constraint, then it should NOT appear in the WHERE\nclause.\" If Stage 1 added a filter that the question never asked for (e.g. a status filter, an\nactive/inactive check), tag it [CONTRADICTED] with reason: \"contrapositive — question does not\nmention this constraint.\"\n\nPHASE 4b — HYPOTHESIS REVIEW\nWrite a short paragraph (3–5 sentences) answering:\n  1. Does your original hypothesis about how to answer this question still hold?\n     State clearly: YES it holds, NO it needs to change, or PARTIALLY — explain what changed.\n  2. Did the query results reveal anything you did not expect? If so, what?\n  3. What is your updated hypothesis for the final SQL approach?\n\nYour updated hypothesis must name:\n  - The exact table name(s) as they appear in the schema\n  - The exact column name(s) — quoted if they contain spaces\n  - The exact confirmed string value (if a filter is needed) — proven by a DISTINCT query\n  - The exact join path (if tables must be joined) — proven by connectivity lemma queries\n  Vague hypotheses like \"filter by type\" or \"join on the ID column\" are rejected.\n  If any piece is uncertain, tag it [OPEN-VALUE] and resolve it in Phase 5.\n\nPHASE 5 — CONFIRMATION QUERIES\nWrite at least 15 new SQL queries. The system will reject outputs with fewer than 5 — those records\nwill be skipped entirely. These are not exploratory — they are targeted at the gaps, surprises, and\nrevised assumptions from Phases 4 and 4b.\n\nMandatory resolution: Every [OPEN-VALUE] and [WRONG-TABLE] from Phase 4 MUST have a corresponding\nresolution query in Phase 5. An unresolved conjecture is a gap that the Director will fill with\nguesswork — and guesswork is how we get wrong answers.\n  - For [OPEN-VALUE]: run SELECT DISTINCT col FROM table LIMIT 20 to prove the exact value.\n  - For [WRONG-TABLE]: run exploratory queries against the alternative table.\n  - For [LIKE-VS-ENUM]: run SELECT DISTINCT enum_col FROM table LIMIT 20. If the enum column\n    provides exact values that match the question's intent, recommend it over the LIKE filter\n    in your Phase 4b hypothesis update.\n\nDo not repeat queries from Phase 3. Each query must address something new.\n\nSQLite rules — same as before, non-negotiable:\n- Column names with spaces or special characters MUST be double-quoted: \"County Name\"\n- No window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.)\n- Always use LIMIT\n- Do NOT write the final answer query\n\nOutput format for Phase 5 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- RESOLVE [OPEN-VALUE]: Prove what distinct values exist in order_status.\n   SELECT DISTINCT order_status FROM orders LIMIT 20;\n\n2. -- RESOLVE [WRONG-TABLE]: Check if revenue data lives in invoices instead of orders.\n   SELECT COUNT(*), MIN(total), MAX(total) FROM invoices LIMIT 1;\n\n3. -- CONTRAPOSITIVE TEST: Verify results without the assumed 'active' filter.\n   SELECT COUNT(*) FROM customers LIMIT 1;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check if department_code is a cleaner filter than department_name.\n   SELECT DISTINCT department_code, department_name FROM departments LIMIT 20;\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 4 — REVISED ASSUMPTIONS\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\n## PHASE 5 — CONFIRMATION QUERIES",
+   "user_prompt": "The query results are in. Time to review.\n\nQuestion: Among all superheroes created by George Lucas, identify the percentage of female superheroes.\n\nDatabase: superhero\n\nSchema (same as before — table names, column names, types, join keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\n---\n\nYour Phase 1 — Two Semantic Hypotheses:\n\n1. How is \"George Lucas\" represented in the database? Assumption: He is listed as a value in the `publisher_name` column of the `publisher` table.\n2. What is the exact string used to identify female superheroes? Assumption: The `gender` column in the `gender` table uses the value 'Female'.\n3. Does \"created by\" map strictly to the publisher, or could it be an attribute? Assumption: It maps to the `publisher_id` foreign key in the `superhero` table.\n4. Which identifier is required for the final result? Assumption: The question asks for a percentage (a numeric value), not a list of names or IDs.\n5. Are there multiple entries for the same superhero that could skew the percentage? Assumption: Each row in the `superhero` table represents a unique entity.\n\nREASONING:\nI must first determine where creator information is stored as there is no explicit \"creator\" table.\nThe gender mapping needs verification to avoid filtering out valid female characters due to naming conventions.\nA percentage calculation requires two distinct counts: the total for the creator and the subset that is female.\nI need to investigate if \"George Lucas\" appears under a different name, such as a company he owns.\nVerifying the join paths between superheroes, publishers, and genders is critical for data integrity.\n\n---\n\nYour Phase 2 — Schema Deep Dive:\n\n1. [CONFIRMED] The `publisher` table contains `publisher_name`, which is the most likely location for \"George Lucas\".\n2. [CONFIRMED] The `gender` table exists with a `gender` text column to define female superheroes.\n3. [REVISED] While `publisher_id` is available, I should also check the `attribute` and `hero_attribute` tables to see if \"Creator\" is stored as a specific attribute.\n4. [CONFIRMED] The request for a percentage implies a calculation based on counts of IDs from the `superhero` table.\n5. [CONFIRMED] The `superhero` table has a primary key `id`, which allows for distinct counting.\n\nREASONING:\nThe schema confirms a standard relational structure linking superheroes to their publisher and gender.\nI have identified that I must join three tables (superhero, publisher, gender) to answer the question.\nThe existence of an `attribute` table introduces a possibility that \"created by\" is not synonymous with \"publisher\".\nNull values in `gender_id` or `publisher_id` could impact the denominator of the percentage calculation.\nI need to verify if George Lucas exists as a literal string or if his works are under a corporate banner.\n\n---\n\nPhase 3 — Exploratory Query Results:\n\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the publisher_name column to find George Lucas.\n   SELECT DISTINCT publisher_name FROM publisher LIMIT 20\n   Columns: publisher_name\n   ['']\n   ['ABC Studios']\n   ['Dark Horse Comics']\n   ... (20 rows total)\n\n2. -- EXISTENCE PROOF: Confirm how female gender is labeled in the gender table.\n   SELECT DISTINCT gender FROM gender LIMIT 20\n   Columns: gender\n   ['Male']\n   ['Female']\n   ['N/A']\n\n3. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and publisher.\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5\n   Columns: publisher_id\n   [13]\n   [3]\n   [4]\n   ... (5 rows total)\n\n4. -- CONNECTIVITY LEMMA: Other side of the join for publishers.\n   SELECT DISTINCT id FROM publisher LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n5. -- CONNECTIVITY LEMMA: Verify join key overlap between superhero and gender.\n   SELECT DISTINCT gender_id FROM superhero LIMIT 5\n   Columns: gender_id\n   [1]\n   [2]\n   [3]\n\n6. -- CONNECTIVITY LEMMA: Other side of the join for genders.\n   SELECT DISTINCT id FROM gender LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n\n7. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\n   SELECT COUNT(*) FROM superhero LIMIT 1\n   Columns: COUNT(*)\n   [750]\n\n8. -- COLUMN SUITABILITY PROOF: Verify if gender_id has too many nulls to be a reliable metric.\n   SELECT COUNT(*) - COUNT(gender_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [0, 750]\n\n9. -- COLUMN SUITABILITY PROOF: Verify if publisher_id has too many nulls to be a reliable filter.\n   SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [3, 750]\n\n10. -- SCOPE PROOF: Check the count of superheroes specifically assigned to George Lucas.\n   SELECT COUNT(*) FROM superhero WHERE publisher_id IN (SELECT id FROM publisher WHERE publisher_name = 'George Lucas') LIMIT 1\n   Columns: COUNT(*)\n   [15]\n\n11. -- SCOPE PROOF: Check the count of all female superheroes in the database.\n   SELECT COUNT(*) FROM superhero WHERE gender_id IN (SELECT id FROM gender WHERE gender = 'Female') LIMIT 1\n   Columns: COUNT(*)\n   [203]\n\n12. -- EXISTENCE PROOF: Search for variations of Lucas in the publisher table to ensure no missing data.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Lucas%' LIMIT 20\n   Columns: publisher_name\n   ['George Lucas']\n\n13. -- EXISTENCE PROOF: Search for variations of Female in the gender table.\n   SELECT DISTINCT gender FROM gender WHERE gender LIKE '%Fem%' LIMIT 20\n   Columns: gender\n   ['Female']\n\n14. -- COLUMN SUITABILITY PROOF: Check for nulls in the publisher_name column itself.\n   SELECT COUNT(*) - COUNT(publisher_name) as nulls, COUNT(*) as total FROM publisher LIMIT 1\n   Columns: nulls, total\n   [0, 25]\n\n15. -- COLUMN SUITABILITY PROOF: Check for nulls in the gender text column.\n   SELECT COUNT(*) - COUNT(gender) as nulls, COUNT(*) as total FROM gender LIMIT 1\n   Columns: nulls, total\n   [0, 3]\n\n16. -- ANNOTATION LEMMA: Check if 'Creator' or similar terms exist as attributes instead of publishers.\n   SELECT DISTINCT attribute_name FROM attribute LIMIT 20\n   Columns: attribute_name\n   ['Intelligence']\n   ['Strength']\n   ['Speed']\n   ... (6 rows total)\n\n---\n\nWork through Phase 4 and Phase 5 now.",
+   "response": "## PHASE 4 — REVISED ASSUMPTIONS\n\n1. [CONFIRMED] George Lucas is listed as a value in the publisher_name column of the publisher table. Query 12 confirms 'George Lucas' exists and Query 10 proves he is linked to 15 superheroes.\n2. [CONFIRMED] The gender column in the gender table uses the value 'Female'. Query 2 and Query 13 explicitly confirm this string value.\n3. [CONFIRMED] \"Created by\" maps to the publisher_id foreign key in the superhero table. Query 16 shows that the attribute table contains physical/mental stats (Intelligence, Strength) rather than creator information.\n4. [CONFIRMED] The question asks for a percentage calculation based on counts of IDs from the superhero table. This is confirmed by the phrasing \"identify the percentage\" and the existence of unique IDs in Query 7.\n5. [CONFIRMED] Each row in the superhero table represents a unique entity. This is confirmed by the primary key id and the total count provided in Query 7.\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\nYES, the original hypothesis holds. The query results confirm that George Lucas exists as a publisher and that gender is categorized simply as 'Female' or 'Male'. No unexpected data was found; the dataset is clean with very few nulls in the critical join columns. My updated hypothesis for the final SQL approach is to join the superhero table to the publisher table on superhero.publisher_id = publisher.id and to the gender table on superhero.gender_id = gender.id, filtering by publisher.publisher_name = 'George Lucas' and calculating the ratio of superheroes where gender.gender = 'Female' against the total count for that publisher.\n\n## PHASE 5 — CONFIRMATION QUERIES\n\n1. -- VERIFY: Ensure no other publishers contain the word Lucas to avoid missing data.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Lucas%' LIMIT 20;\n\n2. -- VERIFY: Check for case sensitivity or trailing spaces in 'George Lucas'.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE 'George Lucas%' LIMIT 20;\n\n3. -- VERIFY: Ensure no other gender values exist that could be interpreted as female (e.g., 'Woman').\n   SELECT DISTINCT gender FROM gender LIMIT 20;\n\n4. -- VERIFY: Check for trailing spaces or case variations in the 'Female' string.\n   SELECT DISTINCT gender FROM gender WHERE gender LIKE '%Fem%' LIMIT 20;\n\n5. -- DATA INTEGRITY: Count superheroes linked to George Lucas using a JOIN to confirm connectivity.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'George Lucas' LIMIT 1;\n\n6. -- DATA INTEGRITY: Identify all distinct genders associated with George Lucas characters to ensure no unexpected values (like N/A).\n   SELECT DISTINCT g.gender FROM superhero s JOIN gender g ON s.gender_id = g.id JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'George Lucas' LIMIT 20;\n\n7. -- DATA INTEGRITY: Check for duplicate entries of the same superhero name under George Lucas.\n   SELECT superhero_name, COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'George Lucas' GROUP BY superhero_name LIMIT 20;\n\n8. -- DATA INTEGRITY: Verify there are no duplicate IDs for the same publisher name.\n   SELECT publisher_name, COUNT(*) FROM publisher WHERE publisher_name = 'George Lucas' GROUP BY publisher_name LIMIT 1;\n\n9. -- EXPLORATION: Search hero_attribute values to ensure \"Creator\" isn't stored as a value in an attribute column.\n   SELECT * FROM hero_attribute WHERE attribute_value IS NOT NULL LIMIT 20;\n\n10. -- EXPLORATION: Double check the attribute table for any columns related to authorship or creation.\n    SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%Creat%' OR attribute_name LIKE '%Auth%' LIMIT 20;\n\n11. -- DATA INTEGRITY: Check if any superheroes linked to George Lucas have a NULL gender_id.\n    SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'George Lucas' AND gender_id IS NULL LIMIT 1;\n\n12. -- DATA INTEGRITY: Verify the total number of publishers to understand the scale of the lookup table.\n    SELECT COUNT(*) FROM publisher LIMIT 1;\n\n13. -- DATA INTEGRITY: Check for empty strings in publisher_name that might affect filtering.\n    SELECT COUNT(*) FROM publisher WHERE publisher_name = '' LIMIT 1;\n\n14. -- DATA INTEGRITY: Confirm the count of 'Male' superheroes for George Lucas to validate the denominator logic.\n    SELECT COUNT(*) FROM superhero JOIN gender g ON superhero.gender_id = g.id JOIN publisher p ON superhero.publisher_id = p.id WHERE p.publisher_name = 'George Lucas' AND g.gender = 'Male' LIMIT 1;\n\n15. -- DATA INTEGRITY: Check for any superheroes that have a publisher_id not present in the publisher table.\n    SELECT COUNT(*) FROM superhero WHERE publisher_id NOT IN (SELECT id FROM publisher) LIMIT 1;",
+   "phase4": "1. [CONFIRMED] George Lucas is listed as a value in the publisher_name column of the publisher table. Query 12 confirms 'George Lucas' exists and Query 10 proves he is linked to 15 superheroes.\n2. [CONFIRMED] The gender column in the gender table uses the value 'Female'. Query 2 and Query 13 explicitly confirm this string value.\n3. [CONFIRMED] \"Created by\" maps to the publisher_id foreign key in the superhero table. Query 16 shows that the attribute table contains physical/mental stats (Intelligence, Strength) rather than creator information.\n4. [CONFIRMED] The question asks for a percentage calculation based on counts of IDs from the superhero table. This is confirmed by the phrasing \"identify the percentage\" and the existence of unique IDs in Query 7.\n5. [CONFIRMED] Each row in the superhero table represents a unique entity. This is confirmed by the primary key id and the total count provided in Query 7.",
+   "phase4b": "YES, the original hypothesis holds. The query results confirm that George Lucas exists as a publisher and that gender is categorized simply as 'Female' or 'Male'. No unexpected data was found; the dataset is clean with very few nulls in the critical join columns. My updated hypothesis for the final SQL approach is to join the superhero table to the publisher table on superhero.publisher_id = publisher.id and to the gender table on superhero.gender_id = gender.id, filtering by publisher.publisher_name = 'George Lucas' and calculating the ratio of superheroes where gender.gender = 'Female' against the total count for that publisher.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "VERIFY: Ensure no other publishers contain the word Lucas to avoid missing data.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Lucas%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "VERIFY: Check for case sensitivity or trailing spaces in 'George Lucas'.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE 'George Lucas%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "VERIFY: Ensure no other gender values exist that could be interpreted as female (e.g., 'Woman').",
+     "sql": "SELECT DISTINCT gender FROM gender LIMIT 20",
+     "status": "success",
+     "columns": [
+      "gender"
+     ],
+     "head": [
+      [
+       "Male"
+      ],
+      [
+       "Female"
+      ],
+      [
+       "N/A"
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "VERIFY: Check for trailing spaces or case variations in the 'Female' string.",
+     "sql": "SELECT DISTINCT gender FROM gender WHERE gender LIKE '%Fem%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "gender"
+     ],
+     "head": [
+      [
+       "Female"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "DATA INTEGRITY: Count superheroes linked to George Lucas using a JOIN to confirm connectivity.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'George Lucas' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       15
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "DATA INTEGRITY: Identify all distinct genders associated with George Lucas characters to ensure no unexpected values (like N/A).",
+     "sql": "SELECT DISTINCT g.gender FROM superhero s JOIN gender g ON s.gender_id = g.id JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'George Lucas' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "gender"
+     ],
+     "head": [
+      [
+       "Male"
+      ],
+      [
+       "Female"
+      ]
+     ],
+     "row_count": 2,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "DATA INTEGRITY: Check for duplicate entries of the same superhero name under George Lucas.",
+     "sql": "SELECT superhero_name, COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'George Lucas' GROUP BY superhero_name LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       "Boba Fett",
+       1
+      ],
+      [
+       "Chewbacca",
+       1
+      ],
+      [
+       "Darth Maul",
+       1
+      ],
+      [
+       "Darth Vader",
+       1
+      ],
+      [
+       "Greedo",
+       1
+      ]
+     ],
+     "row_count": 15,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "DATA INTEGRITY: Verify there are no duplicate IDs for the same publisher name.",
+     "sql": "SELECT publisher_name, COUNT(*) FROM publisher WHERE publisher_name = 'George Lucas' GROUP BY publisher_name LIMIT 1",
+     "status": "success",
+     "columns": [
+      "publisher_name",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       "George Lucas",
+       1
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "EXPLORATION: Search hero_attribute values to ensure \"Creator\" isn't stored as a value in an attribute column.",
+     "sql": "SELECT * FROM hero_attribute WHERE attribute_value IS NOT NULL LIMIT 20",
+     "status": "success",
+     "columns": [
+      "hero_id",
+      "attribute_id",
+      "attribute_value"
+     ],
+     "head": [
+      [
+       1,
+       1,
+       80
+      ],
+      [
+       2,
+       1,
+       75
+      ],
+      [
+       3,
+       1,
+       95
+      ],
+      [
+       4,
+       1,
+       80
+      ],
+      [
+       5,
+       1,
+       85
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "EXPLORATION: Double check the attribute table for any columns related to authorship or creation.",
+     "sql": "SELECT DISTINCT attribute_name FROM attribute WHERE attribute_name LIKE '%Creat%' OR attribute_name LIKE '%Auth%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "attribute_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "DATA INTEGRITY: Check if any superheroes linked to George Lucas have a NULL gender_id.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'George Lucas' AND gender_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "DATA INTEGRITY: Verify the total number of publishers to understand the scale of the lookup table.",
+     "sql": "SELECT COUNT(*) FROM publisher LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       25
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "DATA INTEGRITY: Check for empty strings in publisher_name that might affect filtering.",
+     "sql": "SELECT COUNT(*) FROM publisher WHERE publisher_name = '' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       1
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "DATA INTEGRITY: Confirm the count of 'Male' superheroes for George Lucas to validate the denominator logic.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN gender g ON superhero.gender_id = g.id JOIN publisher p ON superhero.publisher_id = p.id WHERE p.publisher_name = 'George Lucas' AND g.gender = 'Male' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       13
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "DATA INTEGRITY: Check for any superheroes that have a publisher_id not present in the publisher table.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id NOT IN (SELECT id FROM publisher) LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage3": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "\nYou are the director. You are reviewing the work of a junior analyst who investigated a client\nquestion by running SQL queries against the actual database.\n\nYour analyst is good but not infallible. They may have explored the right tables or the wrong ones.\nWhat they give you is raw data from the database — what columns exist, what values appeared, which\njoins worked, which failed. Your job is to use that evidence to write the final SQL.\n\nRules:\n  1. Use the analyst's query results as your evidence base. Column names, table names, join keys,\n     and filter values from PASSED queries are confirmed to exist in the database — use them exactly\n     as they appeared. Queries that FAILED with \"no such column: X\" confirm that X does not exist.\n  2. The analyst may have queried the wrong table or missed a relevant one. Consider all tables\n     the analyst touched, but also re-read the schema to check if a better path exists.\n  3. Write 5 candidates. Each candidate is your best complete answer under a different\n     interpretation of what the question is asking. The interpretations should differ in\n     meaningful ways: which tables to query, which columns to SELECT, which filters to apply,\n     how to aggregate, or what the question fundamentally means.\n\n       C1 — your primary interpretation: the answer you think is most likely correct based on\n             the question text, evidence, and analyst findings. This should be a complete,\n             production-quality query.\n       C2 — second interpretation: a structurally different reading. Perhaps a different table,\n             a different join path, or a different understanding of which column answers the\n             question (e.g., returning an ID instead of a name, or COUNT instead of a list).\n       C3 — third interpretation: another distinct reading. Could differ in aggregation logic,\n             filter scope, or SELECT shape (e.g., including the metric alongside the result).\n       C4 — fourth interpretation: explores a less obvious reading. Different grouping, an\n             additional condition implied by context, or a different column that could answer\n             the same question.\n       C5 — fifth interpretation, most elaborate: if the question could require comparing a\n             value to an aggregate (average, threshold, rank), use Nested Isolation here:\n               Inner query: compute the aggregate (AVG, MAX, COUNT, etc.)\n               Outer query: filter or join against that aggregate result\n             Pattern: SELECT col FROM t WHERE val > (SELECT AVG(val) FROM t)\n             If no aggregate comparison applies, use the most structurally different approach\n             you can justify.\n\n     Each candidate must be a complete, standalone, executable query — not a fragment or\n     simplification. Five variations of the same WHERE clause with minor tweaks is not five\n     interpretations.\n  4. Each candidate must be a complete, standalone, executable SQL query.\n  5. Different interpretations may reasonably differ in SELECT shape. For example, one\n     interpretation might return only COUNT(*), another might return COUNT(*) with the GROUP BY\n     column, and another might return the actual rows. Let each interpretation dictate its own\n     SELECT — do not artificially restrict columns across all five candidates.\n  6. Use LIMIT only when the question asks for a specific number of results (\"top 3\", \"the one\n     with the highest\"). If the question asks for a list without a count, do not use LIMIT.\n  7. You may use window functions (RANK, ROW_NUMBER, etc.) when the question requires ranking\n     within a group or ordering within a partition.\n\n  Proof-by-Cases principle:\n    C1-C5 must represent genuinely different interpretations of the question. If the correct\n    answer exists, at least one interpretation MUST capture it. Each must be structurally\n    distinct — different tables, joins, groupings, SELECT columns, or filter logic.\n\n  Exclusion Principle:\n    Every element in your SQL must be justified by either:\n      (a) the question text explicitly requiring it, or\n      (b) a PASSED query from the analyst's work confirming it exists and is relevant.\n    Do not add columns \"for context\", filters \"for safety\" (IS NOT NULL, status checks),\n    or joins \"just in case\". Unjustified additions are unproven conjectures — they narrow\n    or widen the result set beyond what was asked and cause failures.\n\n  Evidence hierarchy:\n    - PASSED queries with non-zero rows: proven facts. Use the exact column names, table\n      names, and values as they appeared.\n    - FAILED queries (errors): proven non-existence. The column or table does NOT exist\n      in that form. Do not use it.\n    - Zero-row PASSED queries: the filter combination is valid syntax but matches nothing.\n      Consider whether the filter is too restrictive.\n    - [OPEN-VALUE] / [WRONG-TABLE] tags from the analyst: unresolved conjectures. Prefer\n      alternatives that were actually confirmed.\n\nSQLite rules — non-negotiable:\n  - Column names with spaces or special characters MUST be double-quoted: \"Order Date\"\n  - Every query must begin with SELECT. Never use WITH ... AS (CTEs).\n  - Use whatever SQL structure best serves each interpretation: subqueries, window functions,\n    derived tables, or flat SELECT/JOIN/GROUP BY. The only constraint is correctness.\n  - Any query that joins two or more tables MUST assign a short alias to every table\n    (e.g. FROM movies m JOIN ratings r ON m.movie_id = r.movie_id) and MUST qualify every\n    column reference with its alias (e.g. m.movie_title, not just movie_title). Unqualified\n    column references in multi-table queries are ambiguous and will cause runtime errors.\n\nOutput format:\n## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: [what this reading assumes about the question]\nSELECT t1.col FROM t1 JOIN t2 ON t1.id = t2.fk WHERE t1.filter = value\n\n2. -- Second interpretation: [how this differs from C1]\nSELECT t1.id FROM t1 WHERE t1.different_filter = value\n\n3. -- Third interpretation: [what this captures that C1-C2 miss]\nSELECT t1.col, COUNT(*) FROM t1 GROUP BY t1.col\n\n4. -- Fourth interpretation: [alternative approach]\nSELECT t1.col FROM t1 JOIN t3 ON t1.id = t3.fk WHERE t3.filter = value\n\n5. -- Fifth interpretation: [most elaborate or aggregate-comparison approach]\nSELECT t1.col FROM t1 WHERE t1.val > (SELECT AVG(t2.val) FROM t1 t2)\n\nFormat rules:\n  - Numbered 1 through 5 exactly.\n  - Candidate 1 MUST start with \"1. --\" on its own line — never output the first candidate\n    as raw unnumbered SQL.\n  - Comment on same line as the number, starting with --.\n  - SQL starts on the next line, beginning with SELECT.\n  - Blank line between candidates.\n  - No markdown code fences. No bold. No extra headers.\n",
+   "user_prompt": "Question: Among all superheroes created by George Lucas, identify the percentage of female superheroes.\n\nDatabase: superhero\n\n---\nANALYST WORK PRODUCT\n\nStage 1 — What was checked and what was found:\n1. Checked: EXISTENCE PROOF: Confirm what distinct values exist in the publisher_name column to find George Lucas.\n   Result: publisher_name: \n   (20 rows total)\n\n2. Checked: EXISTENCE PROOF: Confirm how female gender is labeled in the gender table.\n   Result: gender: Male\n   (3 rows total)\n\n3. Checked: CONNECTIVITY LEMMA: Verify join key overlap between superhero and publisher.\n   Result: publisher_id: 13\n   (5 rows total)\n\n4. Checked: CONNECTIVITY LEMMA: Other side of the join for publishers.\n   Result: id: 1\n   (5 rows total)\n\n5. Checked: CONNECTIVITY LEMMA: Verify join key overlap between superhero and gender.\n   Result: gender_id: 1\n   (3 rows total)\n\n6. Checked: CONNECTIVITY LEMMA: Other side of the join for genders.\n   Result: id: 1\n   (3 rows total)\n\n7. Checked: AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\n   Result: COUNT(*): 750\n\n8. Checked: COLUMN SUITABILITY PROOF: Verify if gender_id has too many nulls to be a reliable metric.\n   Result: nulls: 0 | total: 750\n\n9. Checked: COLUMN SUITABILITY PROOF: Verify if publisher_id has too many nulls to be a reliable filter.\n   Result: nulls: 3 | total: 750\n\n10. Checked: SCOPE PROOF: Check the count of superheroes specifically assigned to George Lucas.\n   Result: COUNT(*): 15\n\n11. Checked: SCOPE PROOF: Check the count of all female superheroes in the database.\n   Result: COUNT(*): 203\n\n12. Checked: EXISTENCE PROOF: Search for variations of Lucas in the publisher table to ensure no missing data.\n   Result: publisher_name: George Lucas\n\n13. Checked: EXISTENCE PROOF: Search for variations of Female in the gender table.\n   Result: gender: Female\n\n14. Checked: COLUMN SUITABILITY PROOF: Check for nulls in the publisher_name column itself.\n   Result: nulls: 0 | total: 25\n\n15. Checked: COLUMN SUITABILITY PROOF: Check for nulls in the gender text column.\n   Result: nulls: 0 | total: 3\n\n16. Checked: ANNOTATION LEMMA: Check if 'Creator' or similar terms exist as attributes instead of publishers.\n   Result: attribute_name: Intelligence\n   (6 rows total)\n\n\nStage 2 — Hypothesis verdict (Phase 4):\n1. [CONFIRMED] George Lucas is listed as a value in the publisher_name column of the publisher table. Query 12 confirms 'George Lucas' exists and Query 10 proves he is linked to 15 superheroes.\n2. [CONFIRMED] The gender column in the gender table uses the value 'Female'. Query 2 and Query 13 explicitly confirm this string value.\n3. [CONFIRMED] \"Created by\" maps to the publisher_id foreign key in the superhero table. Query 16 shows that the attribute table contains physical/mental stats (Intelligence, Strength) rather than creator information.\n4. [CONFIRMED] The question asks for a percentage calculation based on counts of IDs from the superhero table. This is confirmed by the phrasing \"identify the percentage\" and the existence of unique IDs in Query 7.\n5. [CONFIRMED] Each row in the superhero table represents a unique entity. This is confirmed by the primary key id and the total count provided in Query 7.\n\nStage 2 — Winning hypothesis (Phase 4b):\nYES, the original hypothesis holds. The query results confirm that George Lucas exists as a publisher and that gender is categorized simply as 'Female' or 'Male'. No unexpected data was found; the dataset is clean with very few nulls in the critical join columns. My updated hypothesis for the final SQL approach is to join the superhero table to the publisher table on superhero.publisher_id = publisher.id and to the gender table on superhero.gender_id = gender.id, filtering by publisher.publisher_name = 'George Lucas' and calculating the ratio of superheroes where gender.gender = 'Female' against the total count for that publisher.\n\nStage 2 — Confirmation checks and what was found:\n1. Checked: VERIFY: Ensure no other publishers contain the word Lucas to avoid missing data.\n   Result: publisher_name: George Lucas\n\n2. Checked: VERIFY: Check for case sensitivity or trailing spaces in 'George Lucas'.\n   Result: publisher_name: George Lucas\n\n3. Checked: VERIFY: Ensure no other gender values exist that could be interpreted as female (e.g., 'Woman').\n   Result: gender: Male\n   (3 rows total)\n\n4. Checked: VERIFY: Check for trailing spaces or case variations in the 'Female' string.\n   Result: gender: Female\n\n5. Checked: DATA INTEGRITY: Count superheroes linked to George Lucas using a JOIN to confirm connectivity.\n   Result: COUNT(*): 15\n\n6. Checked: DATA INTEGRITY: Identify all distinct genders associated with George Lucas characters to ensure no unexpected values (like N/A).\n   Result: gender: Male\n   (2 rows total)\n\n7. Checked: DATA INTEGRITY: Check for duplicate entries of the same superhero name under George Lucas.\n   Result: superhero_name: Boba Fett | COUNT(*): 1\n   (15 rows total)\n\n8. Checked: DATA INTEGRITY: Verify there are no duplicate IDs for the same publisher name.\n   Result: publisher_name: George Lucas | COUNT(*): 1\n\n9. Checked: EXPLORATION: Search hero_attribute values to ensure \"Creator\" isn't stored as a value in an attribute column.\n   Result: hero_id: 1 | attribute_id: 1 | attribute_value: 80\n   (20 rows total)\n\n10. Checked: EXPLORATION: Double check the attribute table for any columns related to authorship or creation.\n   Result: (no rows returned)\n\n11. Checked: DATA INTEGRITY: Check if any superheroes linked to George Lucas have a NULL gender_id.\n   Result: COUNT(*): 0\n\n12. Checked: DATA INTEGRITY: Verify the total number of publishers to understand the scale of the lookup table.\n   Result: COUNT(*): 25\n\n13. Checked: DATA INTEGRITY: Check for empty strings in publisher_name that might affect filtering.\n   Result: COUNT(*): 1\n\n14. Checked: DATA INTEGRITY: Confirm the count of 'Male' superheroes for George Lucas to validate the denominator logic.\n   Result: COUNT(*): 13\n\n15. Checked: DATA INTEGRITY: Check for any superheroes that have a publisher_id not present in the publisher table.\n   Result: COUNT(*): 0\n\n\n---\nWrite 5 candidate SQL queries sweeping from the least to the most work required to answer the question.",
+   "response": "## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: Calculate the percentage of female superheroes for George Lucas using a conditional sum divided by total count, multiplied by 100 for percentage format.\nSELECT SUM(CASE WHEN g.gender = 'Female' THEN 1.0 ELSE 0.0 END) * 100 / COUNT(*)\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN gender g ON s.gender_id = g.id\nWHERE p.publisher_name = 'George Lucas'\n\n2. -- Second interpretation: Calculate the ratio as a decimal (fraction of 1) rather than a percentage (fraction of 100).\nSELECT CAST(COUNT(CASE WHEN g.gender = 'Female' THEN 1 END) AS FLOAT) / COUNT(*)\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN gender g ON s.gender_id = g.id\nWHERE p.publisher_name = 'George Lucas'\n\n3. -- Third interpretation: Use separate scalar subqueries to isolate the female count and total count before performing the division.\nSELECT (\n  SELECT COUNT(*) \n  FROM superhero s \n  JOIN gender g ON s.gender_id = g.id \n  JOIN publisher p ON s.publisher_id = p.id \n  WHERE p.publisher_name = 'George Lucas' AND g.gender = 'Female'\n) * 100.0 / (\n  SELECT COUNT(*) \n  FROM superhero s \n  JOIN publisher p ON s.publisher_id = p.id \n  WHERE p.publisher_name = 'George Lucas'\n)\n\n4. -- Fourth interpretation: Return the result as a grouped set including the publisher name to provide context alongside the percentage.\nSELECT p.publisher_name, SUM(CASE WHEN g.gender = 'Female' THEN 1.0 ELSE 0.0 END) * 100 / COUNT(*)\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN gender g ON s.gender_id = g.id\nWHERE p.publisher_name = 'George Lucas'\nGROUP BY p.publisher_name\n\n5. -- Fifth interpretation: Use Nested Isolation to compute the total count of George Lucas superheroes in an inner query and use it as a constant denominator for the outer female-filtered count.\nSELECT COUNT(*) * 100.0 / (\n  SELECT COUNT(*) \n  FROM superhero s2 \n  JOIN publisher p2 ON s2.publisher_id = p2.id \n  WHERE p2.publisher_name = 'George Lucas'\n)\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN gender g ON s.gender_id = g.id\nWHERE p.publisher_name = 'George Lucas' AND g.gender = 'Female'",
+   "candidates": [
+    {
+     "n": 1,
+     "comment": "Primary interpretation: Calculate the percentage of female superheroes for George Lucas using a conditional sum divided by total count, multiplied by 100 for percentage format.",
+     "sql": "SELECT SUM(CASE WHEN g.gender = 'Female' THEN 1.0 ELSE 0.0 END) * 100 / COUNT(*)\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN gender g ON s.gender_id = g.id\nWHERE p.publisher_name = 'George Lucas'",
+     "status": "success",
+     "columns": [
+      "SUM(CASE WHEN g.gender = 'Female' THEN 1.0 ELSE 0.0 END) * 100 / COUNT(*)"
+     ],
+     "rows": [
+      [
+       13.333333333333334
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 2,
+     "comment": "Second interpretation: Calculate the ratio as a decimal (fraction of 1) rather than a percentage (fraction of 100).",
+     "sql": "SELECT CAST(COUNT(CASE WHEN g.gender = 'Female' THEN 1 END) AS FLOAT) / COUNT(*)\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN gender g ON s.gender_id = g.id\nWHERE p.publisher_name = 'George Lucas'",
+     "status": "success",
+     "columns": [
+      "CAST(COUNT(CASE WHEN g.gender = 'Female' THEN 1 END) AS FLOAT) / COUNT(*)"
+     ],
+     "rows": [
+      [
+       0.13333333333333333
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 3,
+     "comment": "Third interpretation: Use separate scalar subqueries to isolate the female count and total count before performing the division.",
+     "sql": "SELECT (\n  SELECT COUNT(*) \n  FROM superhero s \n  JOIN gender g ON s.gender_id = g.id \n  JOIN publisher p ON s.publisher_id = p.id \n  WHERE p.publisher_name = 'George Lucas' AND g.gender = 'Female'\n) * 100.0 / (\n  SELECT COUNT(*) \n  FROM superhero s \n  JOIN publisher p ON s.publisher_id = p.id \n  WHERE p.publisher_name = 'George Lucas'\n)",
+     "status": "success",
+     "columns": [
+      "(\n  SELECT COUNT(*) \n  FROM superhero s \n  JOIN gender g ON s.gender_id = g.id \n  JOIN publisher p ON s.publisher_id = p.id \n  WHERE p.publisher_name = 'George Lucas' AND g.gender = 'Female'\n) * 100.0 / (\n  SELECT COUNT(*) \n  FROM superhero s \n  JOIN publisher p ON s.publisher_id = p.id \n  WHERE p.publisher_name = 'George Lucas'\n)"
+     ],
+     "rows": [
+      [
+       13.333333333333334
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 4,
+     "comment": "Fourth interpretation: Return the result as a grouped set including the publisher name to provide context alongside the percentage.",
+     "sql": "SELECT p.publisher_name, SUM(CASE WHEN g.gender = 'Female' THEN 1.0 ELSE 0.0 END) * 100 / COUNT(*)\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN gender g ON s.gender_id = g.id\nWHERE p.publisher_name = 'George Lucas'\nGROUP BY p.publisher_name",
+     "status": "success",
+     "columns": [
+      "publisher_name",
+      "SUM(CASE WHEN g.gender = 'Female' THEN 1.0 ELSE 0.0 END) * 100 / COUNT(*)"
+     ],
+     "rows": [
+      [
+       "George Lucas",
+       13.333333333333334
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 5,
+     "comment": "Fifth interpretation: Use Nested Isolation to compute the total count of George Lucas superheroes in an inner query and use it as a constant denominator for the outer female-filtered count.",
+     "sql": "SELECT COUNT(*) * 100.0 / (\n  SELECT COUNT(*) \n  FROM superhero s2 \n  JOIN publisher p2 ON s2.publisher_id = p2.id \n  WHERE p2.publisher_name = 'George Lucas'\n)\nFROM superhero s\nJOIN publisher p ON s.publisher_id = p.id\nJOIN gender g ON s.gender_id = g.id\nWHERE p.publisher_name = 'George Lucas' AND g.gender = 'Female'",
+     "status": "success",
+     "columns": [
+      "COUNT(*) * 100.0 / (\n  SELECT COUNT(*) \n  FROM superhero s2 \n  JOIN publisher p2 ON s2.publisher_id = p2.id \n  WHERE p2.publisher_name = 'George Lucas'\n)"
+     ],
+     "rows": [
+      [
+       13.333333333333334
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    }
+   ],
+   "chosen": 1,
+   "gold_result": {
+    "columns": [
+     "CAST(COUNT(CASE WHEN T3.gender = 'Female' THEN 1 ELSE NULL END) AS REAL) * 100 / COUNT(T1.id)"
+    ],
+    "rows": [
+     [
+      13.333333333333334
+     ]
+    ],
+    "row_count": 1
+   }
+  }
+ },
+ "noev_elapsed_s": 532.7,
+ "noev_error": null
+}

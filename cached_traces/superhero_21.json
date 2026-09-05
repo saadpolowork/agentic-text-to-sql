@@ -1,0 +1,1517 @@
+{
+ "db_id": "superhero",
+ "question": "Which publisher created more superheroes: DC or Marvel Comics? Find the difference in the number of superheroes.",
+ "evidence": "DC refers to publisher_name = 'DC Comics'; Marvel Comics refers to publisher_name = 'Marvel Comics'; difference = SUBTRACT(SUM(publisher_name = 'DC Comics'), SUM(publisher_name = 'Marvel Comics'));",
+ "gold_sql": "SELECT SUM(CASE WHEN T2.publisher_name = 'DC Comics' THEN 1 ELSE 0 END) - SUM(CASE WHEN T2.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) FROM superhero AS T1 INNER JOIN publisher AS T2 ON T1.publisher_id = T2.id",
+ "models": {
+  "stage1": "google/gemma-4-31b",
+  "stage2": "google/gemma-4-31b",
+  "stage3": "google/gemma-4-31b"
+ },
+ "stages": {
+  "stage1": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Today is your first day at a new company.\n\nNormally this work takes three days. You do not have three days. You have to do it all today.\n\nHere is how you think through a new client question:\n\nPHASE 1 — Before you look at anything:\nYou read the question and evidence first, with the schema face-down. You write out every question\nyou would want answered and every assumption you are making. You are a philosopher — you think in\nwho, what, when, where, by whom, for whom. You think in counter-proofs. What would make an\nassumption wrong? What encoding or edge case breaks the obvious reading? Stating a wrong assumption\nexplicitly is more honest and useful than a vague non-answer.\n\nPHASE 2 — You look at the schema:\nThe data dictionary arrives: table names, column names, types, primary keys, and foreign key\nrelationships. You do NOT get statistics — no min, max, null counts, or sample values. That is\nwhat Phase 3 is for. Some of your Phase 1 assumptions will be confirmed. Some will be wrong. Some\nnew questions will appear that you could not have thought of without seeing the actual column names.\nYou update every assumption. You tag each question.\n\nPHASE 3 — You write exploratory SQL:\nYou have database access. You are excited and thorough. You know that being new means you earn trust\nby being rigorous, not reckless. You have two phases of thinking behind you — now you turn that into\nexploratory SQL. Write at least 15 queries. The system will reject outputs with fewer than 5 —\nthose records will be skipped entirely and the question will not advance to the next stage.\n\nYou have six proof obligations:\n\n1. EXISTENCE LEMMA (DISTINCT probes):\n   For every categorical column you plan to filter on, run SELECT DISTINCT col FROM table LIMIT 20.\n   This is a direct proof of existence — it proves which values actually live in the database.\n   Without this proof, any filter using that column is an ungrounded conjecture. The system will\n   treat unproven filter values as errors in Stage 2.\n\n2. CONNECTIVITY LEMMA (join verification):\n   Before writing any multi-table JOIN, prove the join path works. Run a query on each side of the\n   join key: SELECT DISTINCT join_col FROM table_a LIMIT 5 and SELECT DISTINCT join_col FROM table_b\n   LIMIT 5. If both return values and they overlap, the join is proven. If either returns zero rows\n   or different types, the join is disproven — do not use it.\n\n3. AXIOMATIC NEUTRALITY (contrapositive for filters):\n   Do not add status, active/inactive, or any other filter unless the question explicitly mentions\n   it. Assume the contrapositive: if the question does not mention a constraint, its absence is\n   correct until you prove otherwise. Run at least one query WITHOUT any assumed filter to establish\n   the unfiltered baseline.\n\n4. COLUMN SUITABILITY PROOFS (null-count & scope):\n   Before using any column for aggregation (COUNT, AVG, SUM, MAX, MIN), run a null-count query:\n   SELECT COUNT(*) - COUNT(col) as nulls, COUNT(*) as total FROM table.\n   If nulls exceed 50% of total, that column is statistically unsuitable as a primary metric —\n   look for alternatives. After identifying your primary filter value, run TWO scope queries:\n   (a) one query WITHOUT the filter — note the total row count (unfiltered universe).\n   (b) one query WITH the filter — note the filtered row count.\n   Compare: if filtered count equals unfiltered count, the filter is a no-op and likely wrong.\n   If filtered count is zero, the value does not exist. Both indicate a scope mismatch.\n\n5. ANNOTATION LEMMA (semantic mapping of opaque columns):\n   If the schema contains column names that are short codes, single letters, abbreviations, or\n   numeric identifiers (e.g., col1, X, stat, code_a), you cannot assume their meaning from the\n   name alone. For every such opaque column that could be relevant to the question, run:\n   SELECT DISTINCT col FROM table LIMIT 20\n   Then annotate each with its apparent meaning based on the values returned. Format your comment:\n   \"ANNOTATION LEMMA: col_name appears to be [description] (values: val1, val2, val3)\"\n   This is a direct proof of semantic identity — without it, any use of an opaque column is an\n   ungrounded assumption about what the column contains.\n\n6. JOIN VERIFICATION (non-key joins):\n   The schema marks primary keys [PK] and foreign keys [FK]. If you plan to join two tables on\n   a column that is NOT marked as a PK or FK, you must prove the join is valid by querying both\n   sides: SELECT DISTINCT col FROM table_a LIMIT 5 and SELECT DISTINCT col FROM table_b LIMIT 5.\n   If the values do not overlap, the join is invalid. PK/FK joins are pre-verified by the schema.\n\nAdditional rules:\n- Multi-part question decomposition: Before writing any Phase 1 assumptions, read the\n  question and ask: does it contain multiple distinct sub-questions? A multi-part question\n  typically uses connectors like \"and\", \"also\", \"as well as\", or asks for two different\n  pieces of information in one sentence (e.g. \"What is X? What is Y for Z?\"). If yes,\n  list each sub-question separately in Phase 1 and treat them as independent proof obligations.\n  Your Phase 3 queries must cover every part — a query that only answers one part of a\n  multi-part question is incomplete. The final SQL must return all parts in a single query\n  (using JOIN, subquery, or multiple SELECT expressions as appropriate).\n- Cover all tables that could relate to the question, not just the most obvious one.\n- SELECT only the columns needed for each specific check — no extra \"context\" columns.\n- Identifier Precision: Determine whether the question asks for a primary identifier\n  (ID, code, number) or a descriptive label (name, title, description). If both columns exist\n  side by side in the same table, run a DISTINCT query on each. Your Phase 1 assumptions must\n  explicitly state which column type the question wants. This prevents the Director from\n  guessing at the SELECT column later.\n- Each query has exactly one SQL comment (-- ...) that is a single complete sentence explaining\n  why this specific piece of information matters for answering the client question.\n- Always use LIMIT. Check both heads and tails for any table you are uncertain about.\n- Do NOT write the final answer query — that comes after you see what these return.\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\nA numbered list. For each item: state the question, then immediately state your current assumption.\nAssumptions can be wrong — that is expected and useful.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, explaining why these are the\nright questions to ask.\n\n## PHASE 2 — SCHEMA REVIEW\nA numbered list. For each item from Phase 1, mark it with exactly one tag:\n  [CONFIRMED] — the profile supports your Phase 1 assumption\n  [REVISED]   — you need to update your assumption based on what you see\n  [NEW]       — a question that did not exist in Phase 1, raised by the schema or statistics\n  [DROPPED]   — this question is no longer relevant given what the profile shows\n\nAfter the tag, give a brief one-sentence reason.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, describing what the profile\nrevealed and what still requires direct database investigation.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\nA numbered list of SQL queries. Minimum 15 queries.\n\nSQLite rules — this is non-negotiable:\n- The database engine is SQLite. Write only SQL that SQLite supports.\n- Column names that contain spaces, parentheses, or special characters MUST be\n  wrapped in double quotes. Example: \"County Name\", \"Free Meal Count (K-12)\".\n  Never write an unquoted column name that contains a space.\n- Do not use window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.).\n- Always use LIMIT.\n- Do NOT write the final answer query.\n\nOutput format for Phase 3 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the department_type column.\n   SELECT DISTINCT department_type FROM departments LIMIT 20;\n\n2. -- SCOPE CHECK: Establish the time range covered by the data.\n   SELECT MIN(hire_date), MAX(hire_date) FROM employees LIMIT 1;\n\n3. -- NULL-COUNT PROOF: Verify salary column suitability for aggregation.\n   SELECT COUNT(*) - COUNT(salary) as nulls, COUNT(*) as total FROM employees LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between employees and departments.\n   SELECT DISTINCT department_id FROM employees LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Other side of the join.\n   SELECT DISTINCT id FROM departments LIMIT 5;\n\n6. -- ANNOTATION LEMMA: Determine what opaque column 'dept_code' actually contains.\n   SELECT DISTINCT dept_code FROM departments LIMIT 20;\n\n7. -- JOIN VERIFICATION: Verify non-key join between employees.role and roles.role_name.\n   SELECT DISTINCT role FROM employees LIMIT 5;\n\n8. -- SCOPE PROOF: Unfiltered universe count for the target table.\n   SELECT COUNT(*) FROM employees LIMIT 1;\n\n9. -- SCOPE PROOF: Filtered count — verify filter narrows to expected scope.\n   SELECT COUNT(*) FROM employees WHERE department_type = 'Engineering' LIMIT 1;",
+   "user_prompt": "A new client question just arrived on your desk.\n\nQuestion: Which publisher created more superheroes: DC or Marvel Comics? Find the difference in the number of superheroes.\nEvidence: DC refers to publisher_name = 'DC Comics'; Marvel Comics refers to publisher_name = 'Marvel Comics'; difference = SUBTRACT(SUM(publisher_name = 'DC Comics'), SUM(publisher_name = 'Marvel Comics'));\n\nDatabase: superhero\n\nSchema (table names, column names, types, primary keys, foreign keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nWork through all three phases now.",
+   "response": "## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\n\n1. Does the question require a count of unique superhero records or distinct superhero names? Assumption: It refers to the number of records in the superhero table associated with each publisher.\n2. Are 'DC Comics' and 'Marvel Comics' the exact string literals used in the database? Assumption: The evidence provided is accurate, but I must verify if variations like 'DC' or 'Marvel' exist.\n3. Is the relationship between publishers and superheroes strictly one-to-many? Assumption: Each superhero belongs to exactly one publisher via a foreign key.\n4. Does \"difference\" imply an absolute value or a specific subtraction order (DC minus Marvel)? Assumption: The evidence explicitly suggests DC minus Marvel, but I will calculate both to determine which is larger.\n5. Are there superheroes without an assigned publisher? Assumption: Some records may have a NULL publisher_id, which should be excluded from the comparison.\n6. Does the client want the name of the publisher with more heroes or just the numerical difference? Assumption: Both are required (\"Which publisher... Find the difference\").\n\nREASONING\nThe question asks for a comparative count between two specific entities.\nI must verify if the provided evidence matches the actual data encoding.\nIdentifying whether the relationship is 1:N or M:N is critical for counting logic.\nNull values in the join key could skew the total population baseline.\nDetermining the exact string literals prevents filter errors during final execution.\n\n## PHASE 2 — SCHEMA REVIEW\n\n1. [CONFIRMED] The `superhero` table contains a `publisher_id` foreign key, supporting the one-to-many assumption.\n2. [REVISED] I must check the `publisher` table's `publisher_name` column to confirm if 'DC Comics' and 'Marvel Comics' are the exact values.\n3. [CONFIRMED] The schema shows no join table between superheroes and publishers, confirming a 1:N relationship.\n4. [CONFIRMED] The calculation logic for difference is straightforward subtraction of two counts.\n5. [NEW] I need to check if `publisher_id` in the `superhero` table contains NULLs to understand data completeness.\n6. [CONFIRMED] Both the identity of the winner and the numerical gap are requested.\n\nREASONING\nThe schema confirms a direct link between superheroes and publishers via IDs.\nI have identified that the publisher names reside in a separate lookup table.\nThe absence of a many-to-many table simplifies the counting process significantly.\nDirect database probes are now required to verify the exact string values for filtering.\nNull counts on the foreign key will determine if any heroes are \"publisher-less\".\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\n\n1. -- EXISTENCE LEMMA: Verify that 'DC Comics' and 'Marvel Comics' exist exactly as stated in the publisher table.\nSELECT DISTINCT publisher_name FROM publisher LIMIT 20;\n\n2. -- CONNECTIVITY LEMMA: Prove the join path exists by checking IDs on the publisher side.\nSELECT DISTINCT id FROM publisher LIMIT 5;\n\n3. -- CONNECTIVITY LEMMA: Prove the join path exists by checking IDs on the superhero side.\nSELECT DISTINCT publisher_id FROM superhero LIMIT 5;\n\n4. -- AXIOMATIC NEUTRALITY: Establish a baseline count of all superheroes regardless of publisher.\nSELECT COUNT(*) FROM superhero LIMIT 1;\n\n5. -- COLUMN SUITABILITY PROOF: Check for nulls in the publisher_id column to see if any heroes lack publishers.\nSELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n6. -- SCOPE PROOF: Determine the unfiltered universe of unique publishers represented in the superhero table.\nSELECT COUNT(DISTINCT publisher_id) FROM superhero LIMIT 1;\n\n7. -- SCOPE PROOF: Verify the count of superheroes specifically for DC Comics to ensure the filter is not a no-op or zero.\nSELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.name = 'DC Comics' LIMIT 1;\n\n8. -- SCOPE PROOF: Verify the count of superheroes specifically for Marvel Comics to ensure the filter is not a no-op or zero.\nSELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.name = 'Marvel Comics' LIMIT 1;\n\n9. -- EXISTENCE LEMMA: Check if there are other publishers with \"DC\" or \"Marvel\" in their name that should be considered.\nSELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%DC%' OR publisher_name LIKE '%Marvel%' LIMIT 20;\n\n10. -- JOIN VERIFICATION: Sample the join to ensure superhero names align correctly with expected publishers.\nSELECT s.superhero_name, p.publisher_name FROM superhero s JOIN publisher p ON s.publisher_id = p.id LIMIT 10;\n\n11. -- COLUMN SUITABILITY PROOF: Check for nulls in the publisher_name column to ensure labels are reliable.\nSELECT COUNT(*) - COUNT(publisher_name) as nulls, COUNT(*) as total FROM publisher LIMIT 1;\n\n12. -- EXISTENCE LEMMA: Verify if there are any empty strings in publisher names that could affect counts.\nSELECT DISTINCT publisher_name FROM publisher WHERE publisher_name = '' LIMIT 5;\n\n13. -- SCOPE PROOF: Compare the total number of publishers to the number of publishers with heroes.\nSELECT COUNT(*) FROM publisher LIMIT 1;\n\n14. -- EXISTENCE LEMMA: Check for duplicate superhero names within the same publisher which might require a DISTINCT count.\nSELECT superhero_name, COUNT(*) FROM superhero GROUP BY superhero_name, publisher_id HAVING COUNT(*) > 1 LIMIT 10;\n\n15. -- CONNECTIVITY LEMMA: Verify that IDs in the publisher table are unique and not duplicated.\nSELECT id, COUNT(*) FROM publisher GROUP BY id HAVING COUNT(*) > 1 LIMIT 5;",
+   "phase1": "1. Does the question require a count of unique superhero records or distinct superhero names? Assumption: It refers to the number of records in the superhero table associated with each publisher.\n2. Are 'DC Comics' and 'Marvel Comics' the exact string literals used in the database? Assumption: The evidence provided is accurate, but I must verify if variations like 'DC' or 'Marvel' exist.\n3. Is the relationship between publishers and superheroes strictly one-to-many? Assumption: Each superhero belongs to exactly one publisher via a foreign key.\n4. Does \"difference\" imply an absolute value or a specific subtraction order (DC minus Marvel)? Assumption: The evidence explicitly suggests DC minus Marvel, but I will calculate both to determine which is larger.\n5. Are there superheroes without an assigned publisher? Assumption: Some records may have a NULL publisher_id, which should be excluded from the comparison.\n6. Does the client want the name of the publisher with more heroes or just the numerical difference? Assumption: Both are required (\"Which publisher... Find the difference\").\n\nREASONING\nThe question asks for a comparative count between two specific entities.\nI must verify if the provided evidence matches the actual data encoding.\nIdentifying whether the relationship is 1:N or M:N is critical for counting logic.\nNull values in the join key could skew the total population baseline.\nDetermining the exact string literals prevents filter errors during final execution.",
+   "phase2": "1. [CONFIRMED] The `superhero` table contains a `publisher_id` foreign key, supporting the one-to-many assumption.\n2. [REVISED] I must check the `publisher` table's `publisher_name` column to confirm if 'DC Comics' and 'Marvel Comics' are the exact values.\n3. [CONFIRMED] The schema shows no join table between superheroes and publishers, confirming a 1:N relationship.\n4. [CONFIRMED] The calculation logic for difference is straightforward subtraction of two counts.\n5. [NEW] I need to check if `publisher_id` in the `superhero` table contains NULLs to understand data completeness.\n6. [CONFIRMED] Both the identity of the winner and the numerical gap are requested.\n\nREASONING\nThe schema confirms a direct link between superheroes and publishers via IDs.\nI have identified that the publisher names reside in a separate lookup table.\nThe absence of a many-to-many table simplifies the counting process significantly.\nDirect database probes are now required to verify the exact string values for filtering.\nNull counts on the foreign key will determine if any heroes are \"publisher-less\".",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "EXISTENCE LEMMA: Verify that 'DC Comics' and 'Marvel Comics' exist exactly as stated in the publisher table.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       ""
+      ],
+      [
+       "ABC Studios"
+      ],
+      [
+       "Dark Horse Comics"
+      ],
+      [
+       "DC Comics"
+      ],
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "CONNECTIVITY LEMMA: Prove the join path exists by checking IDs on the publisher side.",
+     "sql": "SELECT DISTINCT id FROM publisher LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "CONNECTIVITY LEMMA: Prove the join path exists by checking IDs on the superhero side.",
+     "sql": "SELECT DISTINCT publisher_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "publisher_id"
+     ],
+     "head": [
+      [
+       13
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       15
+      ],
+      [
+       25
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "AXIOMATIC NEUTRALITY: Establish a baseline count of all superheroes regardless of publisher.",
+     "sql": "SELECT COUNT(*) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in the publisher_id column to see if any heroes lack publishers.",
+     "sql": "SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       3,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "SCOPE PROOF: Determine the unfiltered universe of unique publishers represented in the superhero table.",
+     "sql": "SELECT COUNT(DISTINCT publisher_id) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(DISTINCT publisher_id)"
+     ],
+     "head": [
+      [
+       25
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "SCOPE PROOF: Verify the count of superheroes specifically for DC Comics to ensure the filter is not a no-op or zero.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.name = 'DC Comics' LIMIT 1",
+     "status": "error",
+     "columns": [],
+     "head": [],
+     "row_count": null,
+     "error": "no such column: publisher.name"
+    },
+    {
+     "n": "8",
+     "comment": "SCOPE PROOF: Verify the count of superheroes specifically for Marvel Comics to ensure the filter is not a no-op or zero.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.name = 'Marvel Comics' LIMIT 1",
+     "status": "error",
+     "columns": [],
+     "head": [],
+     "row_count": null,
+     "error": "no such column: publisher.name"
+    },
+    {
+     "n": "9",
+     "comment": "EXISTENCE LEMMA: Check if there are other publishers with \"DC\" or \"Marvel\" in their name that should be considered.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%DC%' OR publisher_name LIKE '%Marvel%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "DC Comics"
+      ],
+      [
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 2,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "JOIN VERIFICATION: Sample the join to ensure superhero names align correctly with expected publishers.",
+     "sql": "SELECT s.superhero_name, p.publisher_name FROM superhero s JOIN publisher p ON s.publisher_id = p.id LIMIT 10",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "3-D Man",
+       "Marvel Comics"
+      ],
+      [
+       "A-Bomb",
+       "Marvel Comics"
+      ],
+      [
+       "Abe Sapien",
+       "Dark Horse Comics"
+      ],
+      [
+       "Abin Sur",
+       "DC Comics"
+      ],
+      [
+       "Abomination",
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 10,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in the publisher_name column to ensure labels are reliable.",
+     "sql": "SELECT COUNT(*) - COUNT(publisher_name) as nulls, COUNT(*) as total FROM publisher LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       25
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "EXISTENCE LEMMA: Verify if there are any empty strings in publisher names that could affect counts.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name = '' LIMIT 5",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       ""
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "SCOPE PROOF: Compare the total number of publishers to the number of publishers with heroes.",
+     "sql": "SELECT COUNT(*) FROM publisher LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       25
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "EXISTENCE LEMMA: Check for duplicate superhero names within the same publisher which might require a DISTINCT count.",
+     "sql": "SELECT superhero_name, COUNT(*) FROM superhero GROUP BY superhero_name, publisher_id HAVING COUNT(*) > 1 LIMIT 10",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       "Atlas",
+       2
+      ],
+      [
+       "Atlas",
+       2
+      ]
+     ],
+     "row_count": 2,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "CONNECTIVITY LEMMA: Verify that IDs in the publisher table are unique and not duplicated.",
+     "sql": "SELECT id, COUNT(*) FROM publisher GROUP BY id HAVING COUNT(*) > 1 LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id",
+      "COUNT(*)"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 13
+  },
+  "stage2": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Yesterday you worked through a client question in three phases:\nPhase 1 — questions and assumptions written before seeing the schema.\nPhase 2 — schema review, assumptions updated against column profiles.\nPhase 3 — exploratory SQL queries written to investigate the data.\n\nNow the queries have run. You have the results in front of you.\n\nYour job today is three phases:\n\nPHASE 4 — REVISED ASSUMPTIONS\nGo through every assumption you made in Phases 1 and 2. For each one, state what the query results show.\nTag each item with exactly one of:\n  [CONFIRMED]    — a PASSED query directly proves this assumption. Cite the query number.\n  [REVISED]      — results partially support but require adjustment. State what changed and why.\n  [CONTRADICTED] — a query returned zero rows, an error, or unexpected data that disproves this\n                   hypothesis. This is not a failure — it is a proof by contradiction. State clearly\n                   what was disproven and what it implies.\n  [OPEN-VALUE]   — an assumption involves a string filter value that was NEVER confirmed with a\n                   SELECT DISTINCT query. This is an open conjecture — the Director cannot use it.\n                   Phase 5 MUST include a DISTINCT query to resolve it.\n  [WRONG-TABLE]  — query results suggest the data does not live in the assumed table (column doesn't\n                   exist, zero rows where many were expected, data type mismatch). The hypothesis\n                   about which table to use is disproven. Phase 5 must explore the alternative.\n  [LIKE-VS-ENUM] — the analyst used LIKE or a substring match on a name/description column, but\n                   the schema may contain a separate coded or enum column for the same concept\n                   (e.g., filtering by name string when a type_code column exists). Phase 5 MUST\n                   include a DISTINCT query on the potential enum column to check if it provides\n                   a cleaner, exact-match filter.\n\nAfter the tag, write one sentence citing which query result led to this conclusion.\n\nContrapositive test for filters: For each filter in your hypothesis, apply the contrapositive test:\n\"If the question does not explicitly mention this constraint, then it should NOT appear in the WHERE\nclause.\" If Stage 1 added a filter that the question never asked for (e.g. a status filter, an\nactive/inactive check), tag it [CONTRADICTED] with reason: \"contrapositive — question does not\nmention this constraint.\"\n\nPHASE 4b — HYPOTHESIS REVIEW\nWrite a short paragraph (3–5 sentences) answering:\n  1. Does your original hypothesis about how to answer this question still hold?\n     State clearly: YES it holds, NO it needs to change, or PARTIALLY — explain what changed.\n  2. Did the query results reveal anything you did not expect? If so, what?\n  3. What is your updated hypothesis for the final SQL approach?\n\nYour updated hypothesis must name:\n  - The exact table name(s) as they appear in the schema\n  - The exact column name(s) — quoted if they contain spaces\n  - The exact confirmed string value (if a filter is needed) — proven by a DISTINCT query\n  - The exact join path (if tables must be joined) — proven by connectivity lemma queries\n  Vague hypotheses like \"filter by type\" or \"join on the ID column\" are rejected.\n  If any piece is uncertain, tag it [OPEN-VALUE] and resolve it in Phase 5.\n\nPHASE 5 — CONFIRMATION QUERIES\nWrite at least 15 new SQL queries. The system will reject outputs with fewer than 5 — those records\nwill be skipped entirely. These are not exploratory — they are targeted at the gaps, surprises, and\nrevised assumptions from Phases 4 and 4b.\n\nMandatory resolution: Every [OPEN-VALUE] and [WRONG-TABLE] from Phase 4 MUST have a corresponding\nresolution query in Phase 5. An unresolved conjecture is a gap that the Director will fill with\nguesswork — and guesswork is how we get wrong answers.\n  - For [OPEN-VALUE]: run SELECT DISTINCT col FROM table LIMIT 20 to prove the exact value.\n  - For [WRONG-TABLE]: run exploratory queries against the alternative table.\n  - For [LIKE-VS-ENUM]: run SELECT DISTINCT enum_col FROM table LIMIT 20. If the enum column\n    provides exact values that match the question's intent, recommend it over the LIKE filter\n    in your Phase 4b hypothesis update.\n\nDo not repeat queries from Phase 3. Each query must address something new.\n\nSQLite rules — same as before, non-negotiable:\n- Column names with spaces or special characters MUST be double-quoted: \"County Name\"\n- No window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.)\n- Always use LIMIT\n- Do NOT write the final answer query\n\nOutput format for Phase 5 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- RESOLVE [OPEN-VALUE]: Prove what distinct values exist in order_status.\n   SELECT DISTINCT order_status FROM orders LIMIT 20;\n\n2. -- RESOLVE [WRONG-TABLE]: Check if revenue data lives in invoices instead of orders.\n   SELECT COUNT(*), MIN(total), MAX(total) FROM invoices LIMIT 1;\n\n3. -- CONTRAPOSITIVE TEST: Verify results without the assumed 'active' filter.\n   SELECT COUNT(*) FROM customers LIMIT 1;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check if department_code is a cleaner filter than department_name.\n   SELECT DISTINCT department_code, department_name FROM departments LIMIT 20;\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 4 — REVISED ASSUMPTIONS\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\n## PHASE 5 — CONFIRMATION QUERIES",
+   "user_prompt": "The query results are in. Time to review.\n\nQuestion: Which publisher created more superheroes: DC or Marvel Comics? Find the difference in the number of superheroes.\nEvidence: DC refers to publisher_name = 'DC Comics'; Marvel Comics refers to publisher_name = 'Marvel Comics'; difference = SUBTRACT(SUM(publisher_name = 'DC Comics'), SUM(publisher_name = 'Marvel Comics'));\n\nDatabase: superhero\n\nSchema (same as before — table names, column names, types, join keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\n---\n\nYour Phase 1 — Two Semantic Hypotheses:\n\n1. Does the question require a count of unique superhero records or distinct superhero names? Assumption: It refers to the number of records in the superhero table associated with each publisher.\n2. Are 'DC Comics' and 'Marvel Comics' the exact string literals used in the database? Assumption: The evidence provided is accurate, but I must verify if variations like 'DC' or 'Marvel' exist.\n3. Is the relationship between publishers and superheroes strictly one-to-many? Assumption: Each superhero belongs to exactly one publisher via a foreign key.\n4. Does \"difference\" imply an absolute value or a specific subtraction order (DC minus Marvel)? Assumption: The evidence explicitly suggests DC minus Marvel, but I will calculate both to determine which is larger.\n5. Are there superheroes without an assigned publisher? Assumption: Some records may have a NULL publisher_id, which should be excluded from the comparison.\n6. Does the client want the name of the publisher with more heroes or just the numerical difference? Assumption: Both are required (\"Which publisher... Find the difference\").\n\nREASONING\nThe question asks for a comparative count between two specific entities.\nI must verify if the provided evidence matches the actual data encoding.\nIdentifying whether the relationship is 1:N or M:N is critical for counting logic.\nNull values in the join key could skew the total population baseline.\nDetermining the exact string literals prevents filter errors during final execution.\n\n---\n\nYour Phase 2 — Schema Deep Dive:\n\n1. [CONFIRMED] The `superhero` table contains a `publisher_id` foreign key, supporting the one-to-many assumption.\n2. [REVISED] I must check the `publisher` table's `publisher_name` column to confirm if 'DC Comics' and 'Marvel Comics' are the exact values.\n3. [CONFIRMED] The schema shows no join table between superheroes and publishers, confirming a 1:N relationship.\n4. [CONFIRMED] The calculation logic for difference is straightforward subtraction of two counts.\n5. [NEW] I need to check if `publisher_id` in the `superhero` table contains NULLs to understand data completeness.\n6. [CONFIRMED] Both the identity of the winner and the numerical gap are requested.\n\nREASONING\nThe schema confirms a direct link between superheroes and publishers via IDs.\nI have identified that the publisher names reside in a separate lookup table.\nThe absence of a many-to-many table simplifies the counting process significantly.\nDirect database probes are now required to verify the exact string values for filtering.\nNull counts on the foreign key will determine if any heroes are \"publisher-less\".\n\n---\n\nPhase 3 — Exploratory Query Results:\n\n1. -- EXISTENCE LEMMA: Verify that 'DC Comics' and 'Marvel Comics' exist exactly as stated in the publisher table.\n   SELECT DISTINCT publisher_name FROM publisher LIMIT 20\n   Columns: publisher_name\n   ['']\n   ['ABC Studios']\n   ['Dark Horse Comics']\n   ... (20 rows total)\n\n2. -- CONNECTIVITY LEMMA: Prove the join path exists by checking IDs on the publisher side.\n   SELECT DISTINCT id FROM publisher LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n3. -- CONNECTIVITY LEMMA: Prove the join path exists by checking IDs on the superhero side.\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5\n   Columns: publisher_id\n   [13]\n   [3]\n   [4]\n   ... (5 rows total)\n\n4. -- AXIOMATIC NEUTRALITY: Establish a baseline count of all superheroes regardless of publisher.\n   SELECT COUNT(*) FROM superhero LIMIT 1\n   Columns: COUNT(*)\n   [750]\n\n5. -- COLUMN SUITABILITY PROOF: Check for nulls in the publisher_id column to see if any heroes lack publishers.\n   SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [3, 750]\n\n6. -- SCOPE PROOF: Determine the unfiltered universe of unique publishers represented in the superhero table.\n   SELECT COUNT(DISTINCT publisher_id) FROM superhero LIMIT 1\n   Columns: COUNT(DISTINCT publisher_id)\n   [25]\n\n7. -- SCOPE PROOF: Verify the count of superheroes specifically for DC Comics to ensure the filter is not a no-op or zero.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.name = 'DC Comics' LIMIT 1\n   ERROR: no such column: publisher.name\n\n8. -- SCOPE PROOF: Verify the count of superheroes specifically for Marvel Comics to ensure the filter is not a no-op or zero.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.name = 'Marvel Comics' LIMIT 1\n   ERROR: no such column: publisher.name\n\n9. -- EXISTENCE LEMMA: Check if there are other publishers with \"DC\" or \"Marvel\" in their name that should be considered.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%DC%' OR publisher_name LIKE '%Marvel%' LIMIT 20\n   Columns: publisher_name\n   ['DC Comics']\n   ['Marvel Comics']\n\n10. -- JOIN VERIFICATION: Sample the join to ensure superhero names align correctly with expected publishers.\n   SELECT s.superhero_name, p.publisher_name FROM superhero s JOIN publisher p ON s.publisher_id = p.id LIMIT 10\n   Columns: superhero_name, publisher_name\n   ['3-D Man', 'Marvel Comics']\n   ['A-Bomb', 'Marvel Comics']\n   ['Abe Sapien', 'Dark Horse Comics']\n   ... (10 rows total)\n\n11. -- COLUMN SUITABILITY PROOF: Check for nulls in the publisher_name column to ensure labels are reliable.\n   SELECT COUNT(*) - COUNT(publisher_name) as nulls, COUNT(*) as total FROM publisher LIMIT 1\n   Columns: nulls, total\n   [0, 25]\n\n12. -- EXISTENCE LEMMA: Verify if there are any empty strings in publisher names that could affect counts.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name = '' LIMIT 5\n   Columns: publisher_name\n   ['']\n\n13. -- SCOPE PROOF: Compare the total number of publishers to the number of publishers with heroes.\n   SELECT COUNT(*) FROM publisher LIMIT 1\n   Columns: COUNT(*)\n   [25]\n\n14. -- EXISTENCE LEMMA: Check for duplicate superhero names within the same publisher which might require a DISTINCT count.\n   SELECT superhero_name, COUNT(*) FROM superhero GROUP BY superhero_name, publisher_id HAVING COUNT(*) > 1 LIMIT 10\n   Columns: superhero_name, COUNT(*)\n   ['Atlas', 2]\n   ['Atlas', 2]\n\n15. -- CONNECTIVITY LEMMA: Verify that IDs in the publisher table are unique and not duplicated.\n   SELECT id, COUNT(*) FROM publisher GROUP BY id HAVING COUNT(*) > 1 LIMIT 5\n   Columns: id, COUNT(*)\n   (no rows returned)\n\n---\n\nWork through Phase 4 and Phase 5 now.",
+   "response": "## PHASE 4 — REVISED ASSUMPTIONS\n\n1. [REVISED] Assumption: The question refers to the number of records in the superhero table. Query 14 revealed that some publishers have multiple records for the same superhero name (e.g., 'Atlas'), meaning a simple count of rows may overcount unique characters.\n2. [CONFIRMED] Assumption: 'DC Comics' and 'Marvel Comics' are the exact string literals. Query 9 confirms these exact strings exist in the publisher_name column.\n3. [CONFIRMED] Assumption: The relationship between publishers and superheroes is strictly one-to-many. Schema review and Query 15 confirm that each superhero has one publisher_id and publisher IDs are unique.\n4. [CONFIRMED] Assumption: Difference is calculated as DC minus Marvel. This is confirmed by the provided evidence in the prompt.\n5. [CONFIRMED] Assumption: Some superheroes may have a NULL publisher_id. Query 5 proves there are exactly 3 records with a NULL publisher_id.\n6. [CONFIRMED] Assumption: Both the identity of the publisher with more heroes and the numerical difference are required. This is confirmed by the phrasing of the client question.\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\nMy original hypothesis holds PARTIALLY. While the join path and filter values are correct, the discovery of duplicate superhero names for the same publisher (Query 14) introduces ambiguity regarding whether to count total records or distinct character names. I must determine if these duplicates represent different versions of a character or data redundancy before finalizing the aggregation logic.\n\nUpdated Hypothesis:\nI will join the `superhero` table to the `publisher` table using `superhero.publisher_id = publisher.id`. I will filter for `publisher_name` values 'DC Comics' and 'Marvel Comics'. I will calculate the count of superheroes for each, but I must first resolve whether to use COUNT(*) or COUNT(DISTINCT superhero_name) based on the results of my confirmation queries regarding duplicates. The final result will be the subtraction of the Marvel count from the DC count.\n\n## PHASE 5 — CONFIRMATION QUERIES\n\n1. -- RESOLVE [REVISED]: Fix failed Query 7 to get actual record count for DC Comics using correct column name.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'DC Comics' LIMIT 1;\n\n2. -- RESOLVE [REVISED]: Fix failed Query 8 to get actual record count for Marvel Comics using correct column name.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'Marvel Comics' LIMIT 1;\n\n3. -- RESOLVE [REVISED]: Determine if DC Comics has duplicate names that would change the count if DISTINCT is used.\n   SELECT COUNT(DISTINCT superhero_name) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'DC Comics' LIMIT 1;\n\n4. -- RESOLVE [REVISED]: Determine if Marvel Comics has duplicate names that would change the count if DISTINCT is used.\n   SELECT COUNT(DISTINCT superhero_name) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'Marvel Comics' LIMIT 1;\n\n5. -- RESOLVE [REVISED]: Investigate the 'Atlas' duplicates found in Query 14 to see if full_name differs.\n   SELECT superhero_name, full_name, publisher_id FROM superhero WHERE superhero_name = 'Atlas' LIMIT 20;\n\n6. -- EXPLORATORY: Identify all publishers that have duplicate superhero names to see if this is a systemic data issue.\n   SELECT p.publisher_name, s.superhero_name, COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id GROUP BY p.publisher_name, s.superhero_name HAVING COUNT(*) > 1 LIMIT 20;\n\n7. -- DATA INTEGRITY: Check if any superheroes have a NULL superhero_name which would affect DISTINCT counts.\n   SELECT COUNT(*) FROM superhero WHERE superhero_name IS NULL LIMIT 1;\n\n8. -- DATA INTEGRITY: Check if any superheroes have a NULL full_name to see if it can be used as a unique identifier instead of name.\n   SELECT COUNT(*) FROM superhero WHERE full_name IS NULL LIMIT 1;\n\n9. -- SANITY CHECK: Verify there are no leading or trailing spaces in the target publisher names.\n   SELECT publisher_name FROM publisher WHERE publisher_name LIKE '%DC Comics%' OR publisher_name LIKE '%Marvel Comics%' LIMIT 20;\n\n10. -- CASE SENSITIVITY: Check if there are variations in casing for DC or Marvel that were missed by exact match filters.\n    SELECT DISTINCT publisher_name FROM publisher WHERE UPPER(publisher_name) LIKE '%DC%' OR UPPER(publisher_name) LIKE '%MARVEL%' LIMIT 20;\n\n11. -- SCOPE CHECK: Get a full list of publishers and their record counts to see the relative scale of DC vs Marvel.\n    SELECT p.publisher_name, COUNT(*) as hero_count FROM superhero s JOIN publisher p ON s.publisher_id = p.id GROUP BY p.publisher_name ORDER BY hero_count DESC LIMIT 20;\n\n12. -- DATA INTEGRITY: Verify that the total count of superheroes matches the sum of publishers plus nulls.\n    SELECT (SELECT COUNT(*) FROM superhero) - (SELECT COUNT(*) FROM superhero WHERE publisher_id IS NOT NULL) LIMIT 1;\n\n13. -- EXCLUSION TEST: Ensure no single publisher record contains both 'DC' and 'Marvel' in its name.\n    SELECT publisher_name FROM publisher WHERE publisher_name LIKE '%DC%' AND publisher_name LIKE '%Marvel%' LIMIT 10;\n\n14. -- PATTERN CHECK: Check for other publishers using the word 'Comics' to ensure naming consistency across the dataset.\n    SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Comics%' LIMIT 20;\n\n15. -- DATA INTEGRITY: Confirm there are no duplicate IDs in the superhero table that would inflate counts.\n    SELECT id, COUNT(*) FROM superhero GROUP BY id HAVING COUNT(*) > 1 LIMIT 10;",
+   "phase4": "1. [REVISED] Assumption: The question refers to the number of records in the superhero table. Query 14 revealed that some publishers have multiple records for the same superhero name (e.g., 'Atlas'), meaning a simple count of rows may overcount unique characters.\n2. [CONFIRMED] Assumption: 'DC Comics' and 'Marvel Comics' are the exact string literals. Query 9 confirms these exact strings exist in the publisher_name column.\n3. [CONFIRMED] Assumption: The relationship between publishers and superheroes is strictly one-to-many. Schema review and Query 15 confirm that each superhero has one publisher_id and publisher IDs are unique.\n4. [CONFIRMED] Assumption: Difference is calculated as DC minus Marvel. This is confirmed by the provided evidence in the prompt.\n5. [CONFIRMED] Assumption: Some superheroes may have a NULL publisher_id. Query 5 proves there are exactly 3 records with a NULL publisher_id.\n6. [CONFIRMED] Assumption: Both the identity of the publisher with more heroes and the numerical difference are required. This is confirmed by the phrasing of the client question.",
+   "phase4b": "My original hypothesis holds PARTIALLY. While the join path and filter values are correct, the discovery of duplicate superhero names for the same publisher (Query 14) introduces ambiguity regarding whether to count total records or distinct character names. I must determine if these duplicates represent different versions of a character or data redundancy before finalizing the aggregation logic.\n\nUpdated Hypothesis:\nI will join the `superhero` table to the `publisher` table using `superhero.publisher_id = publisher.id`. I will filter for `publisher_name` values 'DC Comics' and 'Marvel Comics'. I will calculate the count of superheroes for each, but I must first resolve whether to use COUNT(*) or COUNT(DISTINCT superhero_name) based on the results of my confirmation queries regarding duplicates. The final result will be the subtraction of the Marvel count from the DC count.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "RESOLVE [REVISED]: Fix failed Query 7 to get actual record count for DC Comics using correct column name.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'DC Comics' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       224
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "RESOLVE [REVISED]: Fix failed Query 8 to get actual record count for Marvel Comics using correct column name.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'Marvel Comics' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       387
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "RESOLVE [REVISED]: Determine if DC Comics has duplicate names that would change the count if DISTINCT is used.",
+     "sql": "SELECT COUNT(DISTINCT superhero_name) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'DC Comics' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(DISTINCT superhero_name)"
+     ],
+     "head": [
+      [
+       223
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "RESOLVE [REVISED]: Determine if Marvel Comics has duplicate names that would change the count if DISTINCT is used.",
+     "sql": "SELECT COUNT(DISTINCT superhero_name) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'Marvel Comics' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(DISTINCT superhero_name)"
+     ],
+     "head": [
+      [
+       386
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "RESOLVE [REVISED]: Investigate the 'Atlas' duplicates found in Query 14 to see if full_name differs.",
+     "sql": "SELECT superhero_name, full_name, publisher_id FROM superhero WHERE superhero_name = 'Atlas' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "full_name",
+      "publisher_id"
+     ],
+     "head": [
+      [
+       "Atlas",
+       "-",
+       4
+      ],
+      [
+       "Atlas",
+       "-",
+       13
+      ],
+      [
+       "Atlas",
+       "Erik Stephan Josten",
+       4
+      ],
+      [
+       "Atlas",
+       "Erik Stephan Josten",
+       13
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "EXPLORATORY: Identify all publishers that have duplicate superhero names to see if this is a systemic data issue.",
+     "sql": "SELECT p.publisher_name, s.superhero_name, COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id GROUP BY p.publisher_name, s.superhero_name HAVING COUNT(*) > 1 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name",
+      "superhero_name",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       "DC Comics",
+       "Atlas",
+       2
+      ],
+      [
+       "Marvel Comics",
+       "Atlas",
+       2
+      ]
+     ],
+     "row_count": 2,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "DATA INTEGRITY: Check if any superheroes have a NULL superhero_name which would affect DISTINCT counts.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE superhero_name IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "DATA INTEGRITY: Check if any superheroes have a NULL full_name to see if it can be used as a unique identifier instead of name.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE full_name IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       122
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "SANITY CHECK: Verify there are no leading or trailing spaces in the target publisher names.",
+     "sql": "SELECT publisher_name FROM publisher WHERE publisher_name LIKE '%DC Comics%' OR publisher_name LIKE '%Marvel Comics%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "DC Comics"
+      ],
+      [
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 2,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "CASE SENSITIVITY: Check if there are variations in casing for DC or Marvel that were missed by exact match filters.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE UPPER(publisher_name) LIKE '%DC%' OR UPPER(publisher_name) LIKE '%MARVEL%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "DC Comics"
+      ],
+      [
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 2,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "SCOPE CHECK: Get a full list of publishers and their record counts to see the relative scale of DC vs Marvel.",
+     "sql": "SELECT p.publisher_name, COUNT(*) as hero_count FROM superhero s JOIN publisher p ON s.publisher_id = p.id GROUP BY p.publisher_name ORDER BY hero_count DESC LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name",
+      "hero_count"
+     ],
+     "head": [
+      [
+       "Marvel Comics",
+       387
+      ],
+      [
+       "DC Comics",
+       224
+      ],
+      [
+       "NBC - Heroes",
+       19
+      ],
+      [
+       "Dark Horse Comics",
+       19
+      ],
+      [
+       "",
+       17
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "DATA INTEGRITY: Verify that the total count of superheroes matches the sum of publishers plus nulls.",
+     "sql": "SELECT (SELECT COUNT(*) FROM superhero) - (SELECT COUNT(*) FROM superhero WHERE publisher_id IS NOT NULL) LIMIT 1",
+     "status": "success",
+     "columns": [
+      "(SELECT COUNT(*) FROM superhero) - (SELECT COUNT(*) FROM superhero WHERE publisher_id IS NOT NULL)"
+     ],
+     "head": [
+      [
+       3
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "EXCLUSION TEST: Ensure no single publisher record contains both 'DC' and 'Marvel' in its name.",
+     "sql": "SELECT publisher_name FROM publisher WHERE publisher_name LIKE '%DC%' AND publisher_name LIKE '%Marvel%' LIMIT 10",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "PATTERN CHECK: Check for other publishers using the word 'Comics' to ensure naming consistency across the dataset.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Comics%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Dark Horse Comics"
+      ],
+      [
+       "DC Comics"
+      ],
+      [
+       "Icon Comics"
+      ],
+      [
+       "Image Comics"
+      ],
+      [
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "DATA INTEGRITY: Confirm there are no duplicate IDs in the superhero table that would inflate counts.",
+     "sql": "SELECT id, COUNT(*) FROM superhero GROUP BY id HAVING COUNT(*) > 1 LIMIT 10",
+     "status": "success",
+     "columns": [
+      "id",
+      "COUNT(*)"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage3": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "\nYou are the director. You are reviewing the work of a junior analyst who investigated a client\nquestion by running SQL queries against the actual database.\n\nYour analyst is good but not infallible. They may have explored the right tables or the wrong ones.\nWhat they give you is raw data from the database — what columns exist, what values appeared, which\njoins worked, which failed. Your job is to use that evidence to write the final SQL.\n\nRules:\n  1. Use the analyst's query results as your evidence base. Column names, table names, join keys,\n     and filter values from PASSED queries are confirmed to exist in the database — use them exactly\n     as they appeared. Queries that FAILED with \"no such column: X\" confirm that X does not exist.\n  2. The analyst may have queried the wrong table or missed a relevant one. Consider all tables\n     the analyst touched, but also re-read the schema to check if a better path exists.\n  3. Write 5 candidates. Each candidate is your best complete answer under a different\n     interpretation of what the question is asking. The interpretations should differ in\n     meaningful ways: which tables to query, which columns to SELECT, which filters to apply,\n     how to aggregate, or what the question fundamentally means.\n\n       C1 — your primary interpretation: the answer you think is most likely correct based on\n             the question text, evidence, and analyst findings. This should be a complete,\n             production-quality query.\n       C2 — second interpretation: a structurally different reading. Perhaps a different table,\n             a different join path, or a different understanding of which column answers the\n             question (e.g., returning an ID instead of a name, or COUNT instead of a list).\n       C3 — third interpretation: another distinct reading. Could differ in aggregation logic,\n             filter scope, or SELECT shape (e.g., including the metric alongside the result).\n       C4 — fourth interpretation: explores a less obvious reading. Different grouping, an\n             additional condition implied by context, or a different column that could answer\n             the same question.\n       C5 — fifth interpretation, most elaborate: if the question could require comparing a\n             value to an aggregate (average, threshold, rank), use Nested Isolation here:\n               Inner query: compute the aggregate (AVG, MAX, COUNT, etc.)\n               Outer query: filter or join against that aggregate result\n             Pattern: SELECT col FROM t WHERE val > (SELECT AVG(val) FROM t)\n             If no aggregate comparison applies, use the most structurally different approach\n             you can justify.\n\n     Each candidate must be a complete, standalone, executable query — not a fragment or\n     simplification. Five variations of the same WHERE clause with minor tweaks is not five\n     interpretations.\n  4. Each candidate must be a complete, standalone, executable SQL query.\n  5. Different interpretations may reasonably differ in SELECT shape. For example, one\n     interpretation might return only COUNT(*), another might return COUNT(*) with the GROUP BY\n     column, and another might return the actual rows. Let each interpretation dictate its own\n     SELECT — do not artificially restrict columns across all five candidates.\n  6. Use LIMIT only when the question asks for a specific number of results (\"top 3\", \"the one\n     with the highest\"). If the question asks for a list without a count, do not use LIMIT.\n  7. You may use window functions (RANK, ROW_NUMBER, etc.) when the question requires ranking\n     within a group or ordering within a partition.\n\n  Proof-by-Cases principle:\n    C1-C5 must represent genuinely different interpretations of the question. If the correct\n    answer exists, at least one interpretation MUST capture it. Each must be structurally\n    distinct — different tables, joins, groupings, SELECT columns, or filter logic.\n\n  Exclusion Principle:\n    Every element in your SQL must be justified by either:\n      (a) the question text explicitly requiring it, or\n      (b) a PASSED query from the analyst's work confirming it exists and is relevant.\n    Do not add columns \"for context\", filters \"for safety\" (IS NOT NULL, status checks),\n    or joins \"just in case\". Unjustified additions are unproven conjectures — they narrow\n    or widen the result set beyond what was asked and cause failures.\n\n  Evidence hierarchy:\n    - PASSED queries with non-zero rows: proven facts. Use the exact column names, table\n      names, and values as they appeared.\n    - FAILED queries (errors): proven non-existence. The column or table does NOT exist\n      in that form. Do not use it.\n    - Zero-row PASSED queries: the filter combination is valid syntax but matches nothing.\n      Consider whether the filter is too restrictive.\n    - [OPEN-VALUE] / [WRONG-TABLE] tags from the analyst: unresolved conjectures. Prefer\n      alternatives that were actually confirmed.\n\nSQLite rules — non-negotiable:\n  - Column names with spaces or special characters MUST be double-quoted: \"Order Date\"\n  - Every query must begin with SELECT. Never use WITH ... AS (CTEs).\n  - Use whatever SQL structure best serves each interpretation: subqueries, window functions,\n    derived tables, or flat SELECT/JOIN/GROUP BY. The only constraint is correctness.\n  - Any query that joins two or more tables MUST assign a short alias to every table\n    (e.g. FROM movies m JOIN ratings r ON m.movie_id = r.movie_id) and MUST qualify every\n    column reference with its alias (e.g. m.movie_title, not just movie_title). Unqualified\n    column references in multi-table queries are ambiguous and will cause runtime errors.\n\nOutput format:\n## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: [what this reading assumes about the question]\nSELECT t1.col FROM t1 JOIN t2 ON t1.id = t2.fk WHERE t1.filter = value\n\n2. -- Second interpretation: [how this differs from C1]\nSELECT t1.id FROM t1 WHERE t1.different_filter = value\n\n3. -- Third interpretation: [what this captures that C1-C2 miss]\nSELECT t1.col, COUNT(*) FROM t1 GROUP BY t1.col\n\n4. -- Fourth interpretation: [alternative approach]\nSELECT t1.col FROM t1 JOIN t3 ON t1.id = t3.fk WHERE t3.filter = value\n\n5. -- Fifth interpretation: [most elaborate or aggregate-comparison approach]\nSELECT t1.col FROM t1 WHERE t1.val > (SELECT AVG(t2.val) FROM t1 t2)\n\nFormat rules:\n  - Numbered 1 through 5 exactly.\n  - Candidate 1 MUST start with \"1. --\" on its own line — never output the first candidate\n    as raw unnumbered SQL.\n  - Comment on same line as the number, starting with --.\n  - SQL starts on the next line, beginning with SELECT.\n  - Blank line between candidates.\n  - No markdown code fences. No bold. No extra headers.\n",
+   "user_prompt": "Question: Which publisher created more superheroes: DC or Marvel Comics? Find the difference in the number of superheroes.\nEvidence: DC refers to publisher_name = 'DC Comics'; Marvel Comics refers to publisher_name = 'Marvel Comics'; difference = SUBTRACT(SUM(publisher_name = 'DC Comics'), SUM(publisher_name = 'Marvel Comics'));\n\nDatabase: superhero\n\n---\nANALYST WORK PRODUCT\n\nStage 1 — What was checked and what was found:\n1. Checked: EXISTENCE LEMMA: Verify that 'DC Comics' and 'Marvel Comics' exist exactly as stated in the publisher table.\n   Result: publisher_name: \n   (20 rows total)\n\n2. Checked: CONNECTIVITY LEMMA: Prove the join path exists by checking IDs on the publisher side.\n   Result: id: 1\n   (5 rows total)\n\n3. Checked: CONNECTIVITY LEMMA: Prove the join path exists by checking IDs on the superhero side.\n   Result: publisher_id: 13\n   (5 rows total)\n\n4. Checked: AXIOMATIC NEUTRALITY: Establish a baseline count of all superheroes regardless of publisher.\n   Result: COUNT(*): 750\n\n5. Checked: COLUMN SUITABILITY PROOF: Check for nulls in the publisher_id column to see if any heroes lack publishers.\n   Result: nulls: 3 | total: 750\n\n6. Checked: SCOPE PROOF: Determine the unfiltered universe of unique publishers represented in the superhero table.\n   Result: COUNT(DISTINCT publisher_id): 25\n\n7. Checked: SCOPE PROOF: Verify the count of superheroes specifically for DC Comics to ensure the filter is not a no-op or zero.\n   Result: ERROR — no such column: publisher.name\n\n8. Checked: SCOPE PROOF: Verify the count of superheroes specifically for Marvel Comics to ensure the filter is not a no-op or zero.\n   Result: ERROR — no such column: publisher.name\n\n9. Checked: EXISTENCE LEMMA: Check if there are other publishers with \"DC\" or \"Marvel\" in their name that should be considered.\n   Result: publisher_name: DC Comics\n   (2 rows total)\n\n10. Checked: JOIN VERIFICATION: Sample the join to ensure superhero names align correctly with expected publishers.\n   Result: superhero_name: 3-D Man | publisher_name: Marvel Comics\n   (10 rows total)\n\n11. Checked: COLUMN SUITABILITY PROOF: Check for nulls in the publisher_name column to ensure labels are reliable.\n   Result: nulls: 0 | total: 25\n\n12. Checked: EXISTENCE LEMMA: Verify if there are any empty strings in publisher names that could affect counts.\n   Result: publisher_name: \n\n13. Checked: SCOPE PROOF: Compare the total number of publishers to the number of publishers with heroes.\n   Result: COUNT(*): 25\n\n14. Checked: EXISTENCE LEMMA: Check for duplicate superhero names within the same publisher which might require a DISTINCT count.\n   Result: superhero_name: Atlas | COUNT(*): 2\n   (2 rows total)\n\n15. Checked: CONNECTIVITY LEMMA: Verify that IDs in the publisher table are unique and not duplicated.\n   Result: (no rows returned)\n\n\nStage 2 — Hypothesis verdict (Phase 4):\n1. [REVISED] Assumption: The question refers to the number of records in the superhero table. Query 14 revealed that some publishers have multiple records for the same superhero name (e.g., 'Atlas'), meaning a simple count of rows may overcount unique characters.\n2. [CONFIRMED] Assumption: 'DC Comics' and 'Marvel Comics' are the exact string literals. Query 9 confirms these exact strings exist in the publisher_name column.\n3. [CONFIRMED] Assumption: The relationship between publishers and superheroes is strictly one-to-many. Schema review and Query 15 confirm that each superhero has one publisher_id and publisher IDs are unique.\n4. [CONFIRMED] Assumption: Difference is calculated as DC minus Marvel. This is confirmed by the provided evidence in the prompt.\n5. [CONFIRMED] Assumption: Some superheroes may have a NULL publisher_id. Query 5 proves there are exactly 3 records with a NULL publisher_id.\n6. [CONFIRMED] Assumption: Both the identity of the publisher with more heroes and the numerical difference are required. This is confirmed by the phrasing of the client question.\n\nStage 2 — Winning hypothesis (Phase 4b):\nMy original hypothesis holds PARTIALLY. While the join path and filter values are correct, the discovery of duplicate superhero names for the same publisher (Query 14) introduces ambiguity regarding whether to count total records or distinct character names. I must determine if these duplicates represent different versions of a character or data redundancy before finalizing the aggregation logic.\n\nUpdated Hypothesis:\nI will join the `superhero` table to the `publisher` table using `superhero.publisher_id = publisher.id`. I will filter for `publisher_name` values 'DC Comics' and 'Marvel Comics'. I will calculate the count of superheroes for each, but I must first resolve whether to use COUNT(*) or COUNT(DISTINCT superhero_name) based on the results of my confirmation queries regarding duplicates. The final result will be the subtraction of the Marvel count from the DC count.\n\nStage 2 — Confirmation checks and what was found:\n1. Checked: RESOLVE [REVISED]: Fix failed Query 7 to get actual record count for DC Comics using correct column name.\n   Result: COUNT(*): 224\n\n2. Checked: RESOLVE [REVISED]: Fix failed Query 8 to get actual record count for Marvel Comics using correct column name.\n   Result: COUNT(*): 387\n\n3. Checked: RESOLVE [REVISED]: Determine if DC Comics has duplicate names that would change the count if DISTINCT is used.\n   Result: COUNT(DISTINCT superhero_name): 223\n\n4. Checked: RESOLVE [REVISED]: Determine if Marvel Comics has duplicate names that would change the count if DISTINCT is used.\n   Result: COUNT(DISTINCT superhero_name): 386\n\n5. Checked: RESOLVE [REVISED]: Investigate the 'Atlas' duplicates found in Query 14 to see if full_name differs.\n   Result: superhero_name: Atlas | full_name: - | publisher_id: 4\n   (4 rows total)\n\n6. Checked: EXPLORATORY: Identify all publishers that have duplicate superhero names to see if this is a systemic data issue.\n   Result: publisher_name: DC Comics | superhero_name: Atlas | COUNT(*): 2\n   (2 rows total)\n\n7. Checked: DATA INTEGRITY: Check if any superheroes have a NULL superhero_name which would affect DISTINCT counts.\n   Result: COUNT(*): 0\n\n8. Checked: DATA INTEGRITY: Check if any superheroes have a NULL full_name to see if it can be used as a unique identifier instead of name.\n   Result: COUNT(*): 122\n\n9. Checked: SANITY CHECK: Verify there are no leading or trailing spaces in the target publisher names.\n   Result: publisher_name: DC Comics\n   (2 rows total)\n\n10. Checked: CASE SENSITIVITY: Check if there are variations in casing for DC or Marvel that were missed by exact match filters.\n   Result: publisher_name: DC Comics\n   (2 rows total)\n\n11. Checked: SCOPE CHECK: Get a full list of publishers and their record counts to see the relative scale of DC vs Marvel.\n   Result: publisher_name: Marvel Comics | hero_count: 387\n   (20 rows total)\n\n12. Checked: DATA INTEGRITY: Verify that the total count of superheroes matches the sum of publishers plus nulls.\n   Result: (SELECT COUNT(*) FROM superhero) - (SELECT COUNT(*) FROM superhero WHERE publisher_id IS NOT NULL): 3\n\n13. Checked: EXCLUSION TEST: Ensure no single publisher record contains both 'DC' and 'Marvel' in its name.\n   Result: (no rows returned)\n\n14. Checked: PATTERN CHECK: Check for other publishers using the word 'Comics' to ensure naming consistency across the dataset.\n   Result: publisher_name: Dark Horse Comics\n   (5 rows total)\n\n15. Checked: DATA INTEGRITY: Confirm there are no duplicate IDs in the superhero table that would inflate counts.\n   Result: (no rows returned)\n\n\n---\nWrite 5 candidate SQL queries sweeping from the least to the most work required to answer the question.",
+   "response": "## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: Calculate the numerical difference between DC Comics and Marvel Comics based on total record counts, following the provided evidence formula (DC minus Marvel).\nSELECT SUM(CASE WHEN p.publisher_name = 'DC Comics' THEN 1 ELSE 0 END) - SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END)\nFROM superhero s JOIN publisher p ON s.publisher_id = p.id\n\n2. -- Second interpretation: Calculate the difference using distinct superhero names to account for duplicates found by the analyst (e.g., 'Atlas').\nSELECT COUNT(DISTINCT CASE WHEN p.publisher_name = 'DC Comics' THEN s.superhero_name END) - COUNT(DISTINCT CASE WHEN p.publisher_name = 'Marvel Comics' THEN s.superhero_name END)\nFROM superhero s JOIN publisher p ON s.publisher_id = p.id\n\n3. -- Third interpretation: Return the individual counts for both publishers alongside the calculated difference to explicitly answer \"which\" created more and by \"how much\".\nSELECT SUM(CASE WHEN p.publisher_name = 'DC Comics' THEN 1 ELSE 0 END) AS dc_count, SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) AS marvel_count, SUM(CASE WHEN p.publisher_name = 'DC Comics' THEN 1 ELSE 0 END) - SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) AS difference\nFROM superhero s JOIN publisher p ON s.publisher_id = p.id\n\n4. -- Fourth interpretation: Use independent scalar subqueries to isolate the counts for each publisher before performing the subtraction.\nSELECT (SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'DC Comics') - (SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'Marvel Comics')\n\n5. -- Fifth interpretation: Use a nested derived table to compute the counts for both publishers and then calculate the absolute difference between the maximum and minimum of those two values.\nSELECT MAX(t.cnt) - MIN(t.cnt)\nFROM (\n  SELECT COUNT(*) AS cnt \n  FROM superhero s JOIN publisher p ON s.publisher_id = p.id \n  WHERE p.publisher_name IN ('DC Comics', 'Marvel Comics') \n  GROUP BY p.publisher_name\n) t",
+   "candidates": [
+    {
+     "n": 1,
+     "comment": "Primary interpretation: Calculate the numerical difference between DC Comics and Marvel Comics based on total record counts, following the provided evidence formula (DC minus Marvel).",
+     "sql": "SELECT SUM(CASE WHEN p.publisher_name = 'DC Comics' THEN 1 ELSE 0 END) - SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END)\nFROM superhero s JOIN publisher p ON s.publisher_id = p.id",
+     "status": "success",
+     "columns": [
+      "SUM(CASE WHEN p.publisher_name = 'DC Comics' THEN 1 ELSE 0 END) - SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END)"
+     ],
+     "rows": [
+      [
+       -163
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 2,
+     "comment": "Second interpretation: Calculate the difference using distinct superhero names to account for duplicates found by the analyst (e.g., 'Atlas').",
+     "sql": "SELECT COUNT(DISTINCT CASE WHEN p.publisher_name = 'DC Comics' THEN s.superhero_name END) - COUNT(DISTINCT CASE WHEN p.publisher_name = 'Marvel Comics' THEN s.superhero_name END)\nFROM superhero s JOIN publisher p ON s.publisher_id = p.id",
+     "status": "success",
+     "columns": [
+      "COUNT(DISTINCT CASE WHEN p.publisher_name = 'DC Comics' THEN s.superhero_name END) - COUNT(DISTINCT CASE WHEN p.publisher_name = 'Marvel Comics' THEN s.superhero_name END)"
+     ],
+     "rows": [
+      [
+       -163
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 3,
+     "comment": "Third interpretation: Return the individual counts for both publishers alongside the calculated difference to explicitly answer \"which\" created more and by \"how much\".",
+     "sql": "SELECT SUM(CASE WHEN p.publisher_name = 'DC Comics' THEN 1 ELSE 0 END) AS dc_count, SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) AS marvel_count, SUM(CASE WHEN p.publisher_name = 'DC Comics' THEN 1 ELSE 0 END) - SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) AS difference\nFROM superhero s JOIN publisher p ON s.publisher_id = p.id",
+     "status": "success",
+     "columns": [
+      "dc_count",
+      "marvel_count",
+      "difference"
+     ],
+     "rows": [
+      [
+       224,
+       387,
+       -163
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 4,
+     "comment": "Fourth interpretation: Use independent scalar subqueries to isolate the counts for each publisher before performing the subtraction.",
+     "sql": "SELECT (SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'DC Comics') - (SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'Marvel Comics')",
+     "status": "success",
+     "columns": [
+      "(SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'DC Comics') - (SELECT COUNT(*) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'Marvel Comics')"
+     ],
+     "rows": [
+      [
+       -163
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 5,
+     "comment": "Fifth interpretation: Use a nested derived table to compute the counts for both publishers and then calculate the absolute difference between the maximum and minimum of those two values.",
+     "sql": "SELECT MAX(t.cnt) - MIN(t.cnt)\nFROM (\n  SELECT COUNT(*) AS cnt \n  FROM superhero s JOIN publisher p ON s.publisher_id = p.id \n  WHERE p.publisher_name IN ('DC Comics', 'Marvel Comics') \n  GROUP BY p.publisher_name\n) t",
+     "status": "success",
+     "columns": [
+      "MAX(t.cnt) - MIN(t.cnt)"
+     ],
+     "rows": [
+      [
+       163
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    }
+   ],
+   "chosen": 1,
+   "gold_result": {
+    "columns": [
+     "SUM(CASE WHEN T2.publisher_name = 'DC Comics' THEN 1 ELSE 0 END) - SUM(CASE WHEN T2.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END)"
+    ],
+    "rows": [
+     [
+      -163
+     ]
+    ],
+    "row_count": 1
+   }
+  }
+ },
+ "elapsed_s": 526.3,
+ "difficulty": "challenging",
+ "single_shot_model": "google/gemma-4-31b",
+ "single_shot": {
+  "no_evidence": {
+   "include_evidence": false,
+   "system_prompt": "You are an expert data analyst who writes SQLite queries. Given a database schema and a question, write ONE SQLite SELECT query that answers it. Use only tables and columns that appear in the schema. Output the query and nothing else — no explanation, no markdown fences.",
+   "user_prompt": "Schema:\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nQuestion: Which publisher created more superheroes: DC or Marvel Comics? Find the difference in the number of superheroes.\n\nWrite the SQLite query:",
+   "sql": "SELECT ABS(SUM(CASE WHEN T2.publisher_name = 'DC' THEN 1 ELSE 0 END) - SUM(CASE WHEN T2.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END)) FROM superhero AS T1 JOIN publisher AS T2 ON T1.publisher_id = T2.id WHERE T2.publisher_name IN ('DC', 'Marvel Comics')",
+   "status": "success",
+   "columns": [
+    "ABS(SUM(CASE WHEN T2.publisher_name = 'DC' THEN 1 ELSE 0 END) - SUM(CASE WHEN T2.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END))"
+   ],
+   "rows": [
+    [
+     387
+    ]
+   ],
+   "row_count": 1,
+   "truncated": false,
+   "error": null,
+   "matches_gold": false
+  },
+  "with_evidence": {
+   "include_evidence": true,
+   "system_prompt": "You are an expert data analyst who writes SQLite queries. Given a database schema and a question, write ONE SQLite SELECT query that answers it. Use only tables and columns that appear in the schema. Output the query and nothing else — no explanation, no markdown fences.",
+   "user_prompt": "Schema:\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nQuestion: Which publisher created more superheroes: DC or Marvel Comics? Find the difference in the number of superheroes.\nHint: DC refers to publisher_name = 'DC Comics'; Marvel Comics refers to publisher_name = 'Marvel Comics'; difference = SUBTRACT(SUM(publisher_name = 'DC Comics'), SUM(publisher_name = 'Marvel Comics'));\n\nWrite the SQLite query:",
+   "sql": "SELECT SUM(T2.publisher_name = 'DC Comics') - SUM(T2.publisher_name = 'Marvel Comics') FROM superhero AS T1 JOIN publisher AS T2 ON T1.publisher_id = T2.id",
+   "status": "success",
+   "columns": [
+    "SUM(T2.publisher_name = 'DC Comics') - SUM(T2.publisher_name = 'Marvel Comics')"
+   ],
+   "rows": [
+    [
+     -163
+    ]
+   ],
+   "row_count": 1,
+   "truncated": false,
+   "error": null,
+   "matches_gold": true
+  }
+ },
+ "stages_noev": {
+  "stage1": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Today is your first day at a new company.\n\nNormally this work takes three days. You do not have three days. You have to do it all today.\n\nHere is how you think through a new client question:\n\nPHASE 1 — Before you look at anything:\nYou read the question and evidence first, with the schema face-down. You write out every question\nyou would want answered and every assumption you are making. You are a philosopher — you think in\nwho, what, when, where, by whom, for whom. You think in counter-proofs. What would make an\nassumption wrong? What encoding or edge case breaks the obvious reading? Stating a wrong assumption\nexplicitly is more honest and useful than a vague non-answer.\n\nPHASE 2 — You look at the schema:\nThe data dictionary arrives: table names, column names, types, primary keys, and foreign key\nrelationships. You do NOT get statistics — no min, max, null counts, or sample values. That is\nwhat Phase 3 is for. Some of your Phase 1 assumptions will be confirmed. Some will be wrong. Some\nnew questions will appear that you could not have thought of without seeing the actual column names.\nYou update every assumption. You tag each question.\n\nPHASE 3 — You write exploratory SQL:\nYou have database access. You are excited and thorough. You know that being new means you earn trust\nby being rigorous, not reckless. You have two phases of thinking behind you — now you turn that into\nexploratory SQL. Write at least 15 queries. The system will reject outputs with fewer than 5 —\nthose records will be skipped entirely and the question will not advance to the next stage.\n\nYou have six proof obligations:\n\n1. EXISTENCE LEMMA (DISTINCT probes):\n   For every categorical column you plan to filter on, run SELECT DISTINCT col FROM table LIMIT 20.\n   This is a direct proof of existence — it proves which values actually live in the database.\n   Without this proof, any filter using that column is an ungrounded conjecture. The system will\n   treat unproven filter values as errors in Stage 2.\n\n2. CONNECTIVITY LEMMA (join verification):\n   Before writing any multi-table JOIN, prove the join path works. Run a query on each side of the\n   join key: SELECT DISTINCT join_col FROM table_a LIMIT 5 and SELECT DISTINCT join_col FROM table_b\n   LIMIT 5. If both return values and they overlap, the join is proven. If either returns zero rows\n   or different types, the join is disproven — do not use it.\n\n3. AXIOMATIC NEUTRALITY (contrapositive for filters):\n   Do not add status, active/inactive, or any other filter unless the question explicitly mentions\n   it. Assume the contrapositive: if the question does not mention a constraint, its absence is\n   correct until you prove otherwise. Run at least one query WITHOUT any assumed filter to establish\n   the unfiltered baseline.\n\n4. COLUMN SUITABILITY PROOFS (null-count & scope):\n   Before using any column for aggregation (COUNT, AVG, SUM, MAX, MIN), run a null-count query:\n   SELECT COUNT(*) - COUNT(col) as nulls, COUNT(*) as total FROM table.\n   If nulls exceed 50% of total, that column is statistically unsuitable as a primary metric —\n   look for alternatives. After identifying your primary filter value, run TWO scope queries:\n   (a) one query WITHOUT the filter — note the total row count (unfiltered universe).\n   (b) one query WITH the filter — note the filtered row count.\n   Compare: if filtered count equals unfiltered count, the filter is a no-op and likely wrong.\n   If filtered count is zero, the value does not exist. Both indicate a scope mismatch.\n\n5. ANNOTATION LEMMA (semantic mapping of opaque columns):\n   If the schema contains column names that are short codes, single letters, abbreviations, or\n   numeric identifiers (e.g., col1, X, stat, code_a), you cannot assume their meaning from the\n   name alone. For every such opaque column that could be relevant to the question, run:\n   SELECT DISTINCT col FROM table LIMIT 20\n   Then annotate each with its apparent meaning based on the values returned. Format your comment:\n   \"ANNOTATION LEMMA: col_name appears to be [description] (values: val1, val2, val3)\"\n   This is a direct proof of semantic identity — without it, any use of an opaque column is an\n   ungrounded assumption about what the column contains.\n\n6. JOIN VERIFICATION (non-key joins):\n   The schema marks primary keys [PK] and foreign keys [FK]. If you plan to join two tables on\n   a column that is NOT marked as a PK or FK, you must prove the join is valid by querying both\n   sides: SELECT DISTINCT col FROM table_a LIMIT 5 and SELECT DISTINCT col FROM table_b LIMIT 5.\n   If the values do not overlap, the join is invalid. PK/FK joins are pre-verified by the schema.\n\nAdditional rules:\n- Multi-part question decomposition: Before writing any Phase 1 assumptions, read the\n  question and ask: does it contain multiple distinct sub-questions? A multi-part question\n  typically uses connectors like \"and\", \"also\", \"as well as\", or asks for two different\n  pieces of information in one sentence (e.g. \"What is X? What is Y for Z?\"). If yes,\n  list each sub-question separately in Phase 1 and treat them as independent proof obligations.\n  Your Phase 3 queries must cover every part — a query that only answers one part of a\n  multi-part question is incomplete. The final SQL must return all parts in a single query\n  (using JOIN, subquery, or multiple SELECT expressions as appropriate).\n- Cover all tables that could relate to the question, not just the most obvious one.\n- SELECT only the columns needed for each specific check — no extra \"context\" columns.\n- Identifier Precision: Determine whether the question asks for a primary identifier\n  (ID, code, number) or a descriptive label (name, title, description). If both columns exist\n  side by side in the same table, run a DISTINCT query on each. Your Phase 1 assumptions must\n  explicitly state which column type the question wants. This prevents the Director from\n  guessing at the SELECT column later.\n- Each query has exactly one SQL comment (-- ...) that is a single complete sentence explaining\n  why this specific piece of information matters for answering the client question.\n- Always use LIMIT. Check both heads and tails for any table you are uncertain about.\n- Do NOT write the final answer query — that comes after you see what these return.\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\nA numbered list. For each item: state the question, then immediately state your current assumption.\nAssumptions can be wrong — that is expected and useful.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, explaining why these are the\nright questions to ask.\n\n## PHASE 2 — SCHEMA REVIEW\nA numbered list. For each item from Phase 1, mark it with exactly one tag:\n  [CONFIRMED] — the profile supports your Phase 1 assumption\n  [REVISED]   — you need to update your assumption based on what you see\n  [NEW]       — a question that did not exist in Phase 1, raised by the schema or statistics\n  [DROPPED]   — this question is no longer relevant given what the profile shows\n\nAfter the tag, give a brief one-sentence reason.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, describing what the profile\nrevealed and what still requires direct database investigation.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\nA numbered list of SQL queries. Minimum 15 queries.\n\nSQLite rules — this is non-negotiable:\n- The database engine is SQLite. Write only SQL that SQLite supports.\n- Column names that contain spaces, parentheses, or special characters MUST be\n  wrapped in double quotes. Example: \"County Name\", \"Free Meal Count (K-12)\".\n  Never write an unquoted column name that contains a space.\n- Do not use window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.).\n- Always use LIMIT.\n- Do NOT write the final answer query.\n\nOutput format for Phase 3 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the department_type column.\n   SELECT DISTINCT department_type FROM departments LIMIT 20;\n\n2. -- SCOPE CHECK: Establish the time range covered by the data.\n   SELECT MIN(hire_date), MAX(hire_date) FROM employees LIMIT 1;\n\n3. -- NULL-COUNT PROOF: Verify salary column suitability for aggregation.\n   SELECT COUNT(*) - COUNT(salary) as nulls, COUNT(*) as total FROM employees LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between employees and departments.\n   SELECT DISTINCT department_id FROM employees LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Other side of the join.\n   SELECT DISTINCT id FROM departments LIMIT 5;\n\n6. -- ANNOTATION LEMMA: Determine what opaque column 'dept_code' actually contains.\n   SELECT DISTINCT dept_code FROM departments LIMIT 20;\n\n7. -- JOIN VERIFICATION: Verify non-key join between employees.role and roles.role_name.\n   SELECT DISTINCT role FROM employees LIMIT 5;\n\n8. -- SCOPE PROOF: Unfiltered universe count for the target table.\n   SELECT COUNT(*) FROM employees LIMIT 1;\n\n9. -- SCOPE PROOF: Filtered count — verify filter narrows to expected scope.\n   SELECT COUNT(*) FROM employees WHERE department_type = 'Engineering' LIMIT 1;",
+   "user_prompt": "A new client question just arrived on your desk.\n\nQuestion: Which publisher created more superheroes: DC or Marvel Comics? Find the difference in the number of superheroes.\n\nDatabase: superhero\n\nSchema (table names, column names, types, primary keys, foreign keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nWork through all three phases now.",
+   "response": "## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\n\n1. Does the database use the exact strings 'DC' and 'Marvel Comics' for publisher names? Assumption: The names may vary (e.g., 'DC Comics', 'Marvel').\n2. Is a \"superhero\" defined as any record in the superhero table, or only those with a specific alignment? Assumption: Any entry in the superhero table counts as a superhero regardless of their alignment_id.\n3. Does every superhero have exactly one publisher assigned? Assumption: The relationship is many-to-one, but some superheroes might have a NULL publisher_id.\n4. Are we counting unique superhero IDs or unique names? Assumption: We are counting the primary key (id) to avoid issues with duplicate names.\n5. Does the client want the absolute difference between the two counts? Assumption: Yes, the numerical subtraction of the smaller count from the larger count.\n\nREASONING\nThe core of the request depends on exact string matches for publishers.\nI must verify if \"superhero\" refers to a role or simply a table entry.\nNull values in the publisher foreign key could skew the total counts.\nCounting IDs is safer than names due to potential aliases or duplicates.\nDefining the difference as an absolute value ensures a positive integer result.\n\n## PHASE 2 — SCHEMA REVIEW\n\n1. [REVISED] The schema has a publisher table with publisher_name; I need to check for variations of 'DC' and 'Marvel'.\n2. [CONFIRMED] There is a separate alignment table, but the question does not specify filtering by \"good\" or \"heroic\" alignment.\n3. [CONFIRMED] The superhero table has a publisher_id foreign key, supporting the many-to-one assumption.\n4. [CONFIRMED] The superhero table has a primary key id and a descriptive superhero_name; I will use id for counting.\n5. [CONFIRMED] This is a calculation step that will be performed after retrieving the counts from the database.\n\nREASONING\nThe schema confirms a standard relational link between superheroes and publishers.\nI have identified that publisher_name is the key column for filtering.\nNo opaque columns were found in the primary tables involved.\nI need to verify if any superheroes are missing publisher assignments.\nDirect database probes are required to find the exact strings used for DC and Marvel.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\n\n1. -- EXISTENCE LEMMA: Prove which publisher names actually exist to avoid guessing 'DC' vs 'DC Comics'.\n   SELECT DISTINCT publisher_name FROM publisher LIMIT 20;\n\n2. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline of all superheroes in the database.\n   SELECT COUNT(*) FROM superhero LIMIT 1;\n\n3. -- COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to see if some heroes are unassigned.\n   SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify the join key exists on the superhero side.\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Verify the join key exists on the publisher side.\n   SELECT DISTINCT id FROM publisher LIMIT 5;\n\n6. -- SCOPE PROOF: Count superheroes for a potential 'DC' match to see if it returns data.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher_name LIKE '%DC%' LIMIT 1;\n\n7. -- SCOPE PROOF: Count superheroes for a potential 'Marvel' match to see if it returns data.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher_name LIKE '%Marvel%' LIMIT 1;\n\n8. -- IDENTIFIER PRECISION: Check if there are duplicate superhero names with different IDs.\n   SELECT superhero_name, COUNT(*) FROM superhero GROUP BY superhero_name HAVING COUNT(*) > 1 LIMIT 20;\n\n9. -- EXISTENCE LEMMA: Confirm the distinct values of alignment to see if \"superhero\" implies a specific alignment.\n   SELECT DISTINCT alignment FROM alignment LIMIT 20;\n\n10. -- COLUMN SUITABILITY PROOF: Check for nulls in superhero_name to ensure data quality.\n    SELECT COUNT(*) - COUNT(superhero_name) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n11. -- SCOPE PROOF: Verify the number of publishers available in the system.\n    SELECT COUNT(*) FROM publisher LIMIT 1;\n\n12. -- CONNECTIVITY LEMMA: Ensure that every publisher ID in the publisher table has at least one hero (or check for empty publishers).\n    SELECT p.publisher_name FROM publisher p LEFT JOIN superhero s ON p.id = s.publisher_id WHERE s.id IS NULL LIMIT 20;\n\n13. -- EXISTENCE LEMMA: Check if there are any other major publishers that might be confused with DC or Marvel.\n    SELECT DISTINCT publisher_name FROM publisher ORDER BY publisher_name ASC LIMIT 20;\n\n14. -- SCOPE PROOF: Compare the count of superheroes assigned to a publisher vs those not assigned.\n    SELECT (CASE WHEN publisher_id IS NULL THEN 'Unassigned' ELSE 'Assigned' END) as status, COUNT(*) FROM superhero GROUP BY status LIMIT 2;\n\n15. -- JOIN VERIFICATION: Verify that the join between superhero and publisher does not result in row multiplication.\n    SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id LIMIT 1;",
+   "phase1": "1. Does the database use the exact strings 'DC' and 'Marvel Comics' for publisher names? Assumption: The names may vary (e.g., 'DC Comics', 'Marvel').\n2. Is a \"superhero\" defined as any record in the superhero table, or only those with a specific alignment? Assumption: Any entry in the superhero table counts as a superhero regardless of their alignment_id.\n3. Does every superhero have exactly one publisher assigned? Assumption: The relationship is many-to-one, but some superheroes might have a NULL publisher_id.\n4. Are we counting unique superhero IDs or unique names? Assumption: We are counting the primary key (id) to avoid issues with duplicate names.\n5. Does the client want the absolute difference between the two counts? Assumption: Yes, the numerical subtraction of the smaller count from the larger count.\n\nREASONING\nThe core of the request depends on exact string matches for publishers.\nI must verify if \"superhero\" refers to a role or simply a table entry.\nNull values in the publisher foreign key could skew the total counts.\nCounting IDs is safer than names due to potential aliases or duplicates.\nDefining the difference as an absolute value ensures a positive integer result.",
+   "phase2": "1. [REVISED] The schema has a publisher table with publisher_name; I need to check for variations of 'DC' and 'Marvel'.\n2. [CONFIRMED] There is a separate alignment table, but the question does not specify filtering by \"good\" or \"heroic\" alignment.\n3. [CONFIRMED] The superhero table has a publisher_id foreign key, supporting the many-to-one assumption.\n4. [CONFIRMED] The superhero table has a primary key id and a descriptive superhero_name; I will use id for counting.\n5. [CONFIRMED] This is a calculation step that will be performed after retrieving the counts from the database.\n\nREASONING\nThe schema confirms a standard relational link between superheroes and publishers.\nI have identified that publisher_name is the key column for filtering.\nNo opaque columns were found in the primary tables involved.\nI need to verify if any superheroes are missing publisher assignments.\nDirect database probes are required to find the exact strings used for DC and Marvel.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "EXISTENCE LEMMA: Prove which publisher names actually exist to avoid guessing 'DC' vs 'DC Comics'.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       ""
+      ],
+      [
+       "ABC Studios"
+      ],
+      [
+       "Dark Horse Comics"
+      ],
+      [
+       "DC Comics"
+      ],
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "AXIOMATIC NEUTRALITY: Establish the unfiltered baseline of all superheroes in the database.",
+     "sql": "SELECT COUNT(*) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to see if some heroes are unassigned.",
+     "sql": "SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       3,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "CONNECTIVITY LEMMA: Verify the join key exists on the superhero side.",
+     "sql": "SELECT DISTINCT publisher_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "publisher_id"
+     ],
+     "head": [
+      [
+       13
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       15
+      ],
+      [
+       25
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "CONNECTIVITY LEMMA: Verify the join key exists on the publisher side.",
+     "sql": "SELECT DISTINCT id FROM publisher LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "SCOPE PROOF: Count superheroes for a potential 'DC' match to see if it returns data.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher_name LIKE '%DC%' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       224
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "SCOPE PROOF: Count superheroes for a potential 'Marvel' match to see if it returns data.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher_name LIKE '%Marvel%' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       387
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "IDENTIFIER PRECISION: Check if there are duplicate superhero names with different IDs.",
+     "sql": "SELECT superhero_name, COUNT(*) FROM superhero GROUP BY superhero_name HAVING COUNT(*) > 1 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       "Angel",
+       2
+      ],
+      [
+       "Ares",
+       2
+      ],
+      [
+       "Atlas",
+       4
+      ],
+      [
+       "Captain Marvel",
+       2
+      ],
+      [
+       "Chameleon",
+       2
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "EXISTENCE LEMMA: Confirm the distinct values of alignment to see if \"superhero\" implies a specific alignment.",
+     "sql": "SELECT DISTINCT alignment FROM alignment LIMIT 20",
+     "status": "success",
+     "columns": [
+      "alignment"
+     ],
+     "head": [
+      [
+       "Good"
+      ],
+      [
+       "Bad"
+      ],
+      [
+       "Neutral"
+      ],
+      [
+       "N/A"
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in superhero_name to ensure data quality.",
+     "sql": "SELECT COUNT(*) - COUNT(superhero_name) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "SCOPE PROOF: Verify the number of publishers available in the system.",
+     "sql": "SELECT COUNT(*) FROM publisher LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       25
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "CONNECTIVITY LEMMA: Ensure that every publisher ID in the publisher table has at least one hero (or check for empty publishers).",
+     "sql": "SELECT p.publisher_name FROM publisher p LEFT JOIN superhero s ON p.id = s.publisher_id WHERE s.id IS NULL LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "EXISTENCE LEMMA: Check if there are any other major publishers that might be confused with DC or Marvel.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher ORDER BY publisher_name ASC LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       ""
+      ],
+      [
+       "ABC Studios"
+      ],
+      [
+       "DC Comics"
+      ],
+      [
+       "Dark Horse Comics"
+      ],
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "SCOPE PROOF: Compare the count of superheroes assigned to a publisher vs those not assigned.",
+     "sql": "SELECT (CASE WHEN publisher_id IS NULL THEN 'Unassigned' ELSE 'Assigned' END) as status, COUNT(*) FROM superhero GROUP BY status LIMIT 2",
+     "status": "success",
+     "columns": [
+      "status",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       "Assigned",
+       747
+      ],
+      [
+       "Unassigned",
+       3
+      ]
+     ],
+     "row_count": 2,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "JOIN VERIFICATION: Verify that the join between superhero and publisher does not result in row multiplication.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       747
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage2": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Yesterday you worked through a client question in three phases:\nPhase 1 — questions and assumptions written before seeing the schema.\nPhase 2 — schema review, assumptions updated against column profiles.\nPhase 3 — exploratory SQL queries written to investigate the data.\n\nNow the queries have run. You have the results in front of you.\n\nYour job today is three phases:\n\nPHASE 4 — REVISED ASSUMPTIONS\nGo through every assumption you made in Phases 1 and 2. For each one, state what the query results show.\nTag each item with exactly one of:\n  [CONFIRMED]    — a PASSED query directly proves this assumption. Cite the query number.\n  [REVISED]      — results partially support but require adjustment. State what changed and why.\n  [CONTRADICTED] — a query returned zero rows, an error, or unexpected data that disproves this\n                   hypothesis. This is not a failure — it is a proof by contradiction. State clearly\n                   what was disproven and what it implies.\n  [OPEN-VALUE]   — an assumption involves a string filter value that was NEVER confirmed with a\n                   SELECT DISTINCT query. This is an open conjecture — the Director cannot use it.\n                   Phase 5 MUST include a DISTINCT query to resolve it.\n  [WRONG-TABLE]  — query results suggest the data does not live in the assumed table (column doesn't\n                   exist, zero rows where many were expected, data type mismatch). The hypothesis\n                   about which table to use is disproven. Phase 5 must explore the alternative.\n  [LIKE-VS-ENUM] — the analyst used LIKE or a substring match on a name/description column, but\n                   the schema may contain a separate coded or enum column for the same concept\n                   (e.g., filtering by name string when a type_code column exists). Phase 5 MUST\n                   include a DISTINCT query on the potential enum column to check if it provides\n                   a cleaner, exact-match filter.\n\nAfter the tag, write one sentence citing which query result led to this conclusion.\n\nContrapositive test for filters: For each filter in your hypothesis, apply the contrapositive test:\n\"If the question does not explicitly mention this constraint, then it should NOT appear in the WHERE\nclause.\" If Stage 1 added a filter that the question never asked for (e.g. a status filter, an\nactive/inactive check), tag it [CONTRADICTED] with reason: \"contrapositive — question does not\nmention this constraint.\"\n\nPHASE 4b — HYPOTHESIS REVIEW\nWrite a short paragraph (3–5 sentences) answering:\n  1. Does your original hypothesis about how to answer this question still hold?\n     State clearly: YES it holds, NO it needs to change, or PARTIALLY — explain what changed.\n  2. Did the query results reveal anything you did not expect? If so, what?\n  3. What is your updated hypothesis for the final SQL approach?\n\nYour updated hypothesis must name:\n  - The exact table name(s) as they appear in the schema\n  - The exact column name(s) — quoted if they contain spaces\n  - The exact confirmed string value (if a filter is needed) — proven by a DISTINCT query\n  - The exact join path (if tables must be joined) — proven by connectivity lemma queries\n  Vague hypotheses like \"filter by type\" or \"join on the ID column\" are rejected.\n  If any piece is uncertain, tag it [OPEN-VALUE] and resolve it in Phase 5.\n\nPHASE 5 — CONFIRMATION QUERIES\nWrite at least 15 new SQL queries. The system will reject outputs with fewer than 5 — those records\nwill be skipped entirely. These are not exploratory — they are targeted at the gaps, surprises, and\nrevised assumptions from Phases 4 and 4b.\n\nMandatory resolution: Every [OPEN-VALUE] and [WRONG-TABLE] from Phase 4 MUST have a corresponding\nresolution query in Phase 5. An unresolved conjecture is a gap that the Director will fill with\nguesswork — and guesswork is how we get wrong answers.\n  - For [OPEN-VALUE]: run SELECT DISTINCT col FROM table LIMIT 20 to prove the exact value.\n  - For [WRONG-TABLE]: run exploratory queries against the alternative table.\n  - For [LIKE-VS-ENUM]: run SELECT DISTINCT enum_col FROM table LIMIT 20. If the enum column\n    provides exact values that match the question's intent, recommend it over the LIKE filter\n    in your Phase 4b hypothesis update.\n\nDo not repeat queries from Phase 3. Each query must address something new.\n\nSQLite rules — same as before, non-negotiable:\n- Column names with spaces or special characters MUST be double-quoted: \"County Name\"\n- No window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.)\n- Always use LIMIT\n- Do NOT write the final answer query\n\nOutput format for Phase 5 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- RESOLVE [OPEN-VALUE]: Prove what distinct values exist in order_status.\n   SELECT DISTINCT order_status FROM orders LIMIT 20;\n\n2. -- RESOLVE [WRONG-TABLE]: Check if revenue data lives in invoices instead of orders.\n   SELECT COUNT(*), MIN(total), MAX(total) FROM invoices LIMIT 1;\n\n3. -- CONTRAPOSITIVE TEST: Verify results without the assumed 'active' filter.\n   SELECT COUNT(*) FROM customers LIMIT 1;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check if department_code is a cleaner filter than department_name.\n   SELECT DISTINCT department_code, department_name FROM departments LIMIT 20;\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 4 — REVISED ASSUMPTIONS\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\n## PHASE 5 — CONFIRMATION QUERIES",
+   "user_prompt": "The query results are in. Time to review.\n\nQuestion: Which publisher created more superheroes: DC or Marvel Comics? Find the difference in the number of superheroes.\n\nDatabase: superhero\n\nSchema (same as before — table names, column names, types, join keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\n---\n\nYour Phase 1 — Two Semantic Hypotheses:\n\n1. Does the database use the exact strings 'DC' and 'Marvel Comics' for publisher names? Assumption: The names may vary (e.g., 'DC Comics', 'Marvel').\n2. Is a \"superhero\" defined as any record in the superhero table, or only those with a specific alignment? Assumption: Any entry in the superhero table counts as a superhero regardless of their alignment_id.\n3. Does every superhero have exactly one publisher assigned? Assumption: The relationship is many-to-one, but some superheroes might have a NULL publisher_id.\n4. Are we counting unique superhero IDs or unique names? Assumption: We are counting the primary key (id) to avoid issues with duplicate names.\n5. Does the client want the absolute difference between the two counts? Assumption: Yes, the numerical subtraction of the smaller count from the larger count.\n\nREASONING\nThe core of the request depends on exact string matches for publishers.\nI must verify if \"superhero\" refers to a role or simply a table entry.\nNull values in the publisher foreign key could skew the total counts.\nCounting IDs is safer than names due to potential aliases or duplicates.\nDefining the difference as an absolute value ensures a positive integer result.\n\n---\n\nYour Phase 2 — Schema Deep Dive:\n\n1. [REVISED] The schema has a publisher table with publisher_name; I need to check for variations of 'DC' and 'Marvel'.\n2. [CONFIRMED] There is a separate alignment table, but the question does not specify filtering by \"good\" or \"heroic\" alignment.\n3. [CONFIRMED] The superhero table has a publisher_id foreign key, supporting the many-to-one assumption.\n4. [CONFIRMED] The superhero table has a primary key id and a descriptive superhero_name; I will use id for counting.\n5. [CONFIRMED] This is a calculation step that will be performed after retrieving the counts from the database.\n\nREASONING\nThe schema confirms a standard relational link between superheroes and publishers.\nI have identified that publisher_name is the key column for filtering.\nNo opaque columns were found in the primary tables involved.\nI need to verify if any superheroes are missing publisher assignments.\nDirect database probes are required to find the exact strings used for DC and Marvel.\n\n---\n\nPhase 3 — Exploratory Query Results:\n\n1. -- EXISTENCE LEMMA: Prove which publisher names actually exist to avoid guessing 'DC' vs 'DC Comics'.\n   SELECT DISTINCT publisher_name FROM publisher LIMIT 20\n   Columns: publisher_name\n   ['']\n   ['ABC Studios']\n   ['Dark Horse Comics']\n   ... (20 rows total)\n\n2. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline of all superheroes in the database.\n   SELECT COUNT(*) FROM superhero LIMIT 1\n   Columns: COUNT(*)\n   [750]\n\n3. -- COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to see if some heroes are unassigned.\n   SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [3, 750]\n\n4. -- CONNECTIVITY LEMMA: Verify the join key exists on the superhero side.\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5\n   Columns: publisher_id\n   [13]\n   [3]\n   [4]\n   ... (5 rows total)\n\n5. -- CONNECTIVITY LEMMA: Verify the join key exists on the publisher side.\n   SELECT DISTINCT id FROM publisher LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n6. -- SCOPE PROOF: Count superheroes for a potential 'DC' match to see if it returns data.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher_name LIKE '%DC%' LIMIT 1\n   Columns: COUNT(*)\n   [224]\n\n7. -- SCOPE PROOF: Count superheroes for a potential 'Marvel' match to see if it returns data.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher_name LIKE '%Marvel%' LIMIT 1\n   Columns: COUNT(*)\n   [387]\n\n8. -- IDENTIFIER PRECISION: Check if there are duplicate superhero names with different IDs.\n   SELECT superhero_name, COUNT(*) FROM superhero GROUP BY superhero_name HAVING COUNT(*) > 1 LIMIT 20\n   Columns: superhero_name, COUNT(*)\n   ['Angel', 2]\n   ['Ares', 2]\n   ['Atlas', 4]\n   ... (5 rows total)\n\n9. -- EXISTENCE LEMMA: Confirm the distinct values of alignment to see if \"superhero\" implies a specific alignment.\n   SELECT DISTINCT alignment FROM alignment LIMIT 20\n   Columns: alignment\n   ['Good']\n   ['Bad']\n   ['Neutral']\n   ... (4 rows total)\n\n10. -- COLUMN SUITABILITY PROOF: Check for nulls in superhero_name to ensure data quality.\n   SELECT COUNT(*) - COUNT(superhero_name) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [0, 750]\n\n11. -- SCOPE PROOF: Verify the number of publishers available in the system.\n   SELECT COUNT(*) FROM publisher LIMIT 1\n   Columns: COUNT(*)\n   [25]\n\n12. -- CONNECTIVITY LEMMA: Ensure that every publisher ID in the publisher table has at least one hero (or check for empty publishers).\n   SELECT p.publisher_name FROM publisher p LEFT JOIN superhero s ON p.id = s.publisher_id WHERE s.id IS NULL LIMIT 20\n   Columns: publisher_name\n   (no rows returned)\n\n13. -- EXISTENCE LEMMA: Check if there are any other major publishers that might be confused with DC or Marvel.\n   SELECT DISTINCT publisher_name FROM publisher ORDER BY publisher_name ASC LIMIT 20\n   Columns: publisher_name\n   ['']\n   ['ABC Studios']\n   ['DC Comics']\n   ... (20 rows total)\n\n14. -- SCOPE PROOF: Compare the count of superheroes assigned to a publisher vs those not assigned.\n   SELECT (CASE WHEN publisher_id IS NULL THEN 'Unassigned' ELSE 'Assigned' END) as status, COUNT(*) FROM superhero GROUP BY status LIMIT 2\n   Columns: status, COUNT(*)\n   ['Assigned', 747]\n   ['Unassigned', 3]\n\n15. -- JOIN VERIFICATION: Verify that the join between superhero and publisher does not result in row multiplication.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id LIMIT 1\n   Columns: COUNT(*)\n   [747]\n\n---\n\nWork through Phase 4 and Phase 5 now.",
+   "response": "## PHASE 4 — REVISED ASSUMPTIONS\n\nAssumption 1: [OPEN-VALUE] Query 6 and 7 used LIKE filters, but a SELECT DISTINCT query has not yet provided the exact string values for both DC and Marvel publishers.\nAssumption 2: [CONFIRMED] Query 9 shows alignment options exist, but since the question does not mention alignment constraints, no filter is applied per the contrapositive test.\nAssumption 3: [CONFIRMED] Query 3 proves that there are exactly 3 superheroes with a NULL publisher_id.\nAssumption 4: [CONFIRMED] Query 8 proves that multiple superheroes share the same name (e.g., 'Atlas'), confirming that counting by id is required for accuracy.\nAssumption 5: [CONFIRMED] This is a logical requirement of the request to \"Find the difference\" and will be handled in the final calculation.\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\nYES, the original hypothesis holds. The query results confirmed that counting by primary key is essential due to duplicate names and that some superheroes lack publisher assignments. I was surprised to see an empty string as a publisher name in Query 13, which suggests data cleanliness issues. My updated hypothesis is to join the superhero table and the publisher table on superhero.publisher_id = publisher.id, filter by the exact strings for DC and Marvel (currently [OPEN-VALUE]), count the superhero.id for each, and calculate the absolute difference between these two counts.\n\n## PHASE 5 — CONFIRMATION QUERIES\n\n1. -- RESOLVE [OPEN-VALUE]: Find the exact string used for DC publishers.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%DC%' LIMIT 20;\n\n2. -- RESOLVE [OPEN-VALUE]: Find the exact string used for Marvel publishers.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel%' LIMIT 20;\n\n3. -- RESOLVE [OPEN-VALUE]: Check if there are multiple variations of DC (e.g., 'DC Comics' and 'DC') to ensure no split counts.\n   SELECT publisher_name, COUNT(*) FROM publisher WHERE publisher_name LIKE '%DC%' GROUP BY publisher_name LIMIT 20;\n\n4. -- RESOLVE [OPEN-VALUE]: Check if there are multiple variations of Marvel (e.g., 'Marvel Comics' and 'Marvel') to ensure no split counts.\n   SELECT publisher_name, COUNT(*) FROM publisher WHERE publisher_name LIKE '%Marvel%' GROUP BY publisher_name LIMIT 20;\n\n5. -- DATA QUALITY: Investigate the empty string publisher found in Query 13.\n   SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher_name = '' LIMIT 1;\n\n6. -- DATA QUALITY: Check for publishers with names consisting only of whitespace.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name GLOB '*[[:space:]]*' AND LENGTH(TRIM(publisher_name)) = 0 LIMIT 20;\n\n7. -- CASE SENSITIVITY: Verify if the database is case-sensitive for publisher names.\n   SELECT COUNT(*) FROM publisher WHERE publisher_name = 'dc comics' LIMIT 1;\n\n8. -- SCOPE VERIFICATION: List all publishers containing the word 'Comics' to understand naming patterns.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Comics%' LIMIT 20;\n\n9. -- INTEGRITY CHECK: Ensure no superhero is linked to a publisher ID that does not exist in the publisher table.\n   SELECT COUNT(*) FROM superhero WHERE publisher_id NOT IN (SELECT id FROM publisher) LIMIT 1;\n\n10. -- CONSISTENCY CHECK: Compare DC and Marvel counts in one result set using exact matches once identified.\n    SELECT publisher_name, COUNT(s.id) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name IN ('DC Comics', 'Marvel') GROUP BY p.publisher_name LIMIT 20;\n\n11. -- DATA QUALITY: Check for trailing or leading spaces in the DC and Marvel names.\n    SELECT publisher_name, LENGTH(publisher_name) FROM publisher WHERE publisher_name LIKE '%DC%' OR publisher_name LIKE '%Marvel%' LIMIT 20;\n\n12. -- SCOPE CHECK: Verify if any superheroes have 'DC' or 'Marvel' in their name but are assigned to different publishers.\n    SELECT s.superhero_name, p.publisher_name FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE s.superhero_name LIKE '%DC%' OR s.superhero_name LIKE '%Marvel%' LIMIT 20;\n\n13. -- INTEGRITY CHECK: Verify that no publisher has a negative or zero ID.\n    SELECT COUNT(*) FROM publisher WHERE id <= 0 LIMIT 1;\n\n14. -- DATA QUALITY: Check if any superhero records have an empty string for the name.\n    SELECT COUNT(*) FROM superhero WHERE superhero_name = '' LIMIT 1;\n\n15. -- UNIQUENESS CHECK: Confirm that there are no duplicate IDs in the superhero table.\n    SELECT id, COUNT(*) FROM superhero GROUP BY id HAVING COUNT(*) > 1 LIMIT 20;",
+   "phase4": "Assumption 1: [OPEN-VALUE] Query 6 and 7 used LIKE filters, but a SELECT DISTINCT query has not yet provided the exact string values for both DC and Marvel publishers.\nAssumption 2: [CONFIRMED] Query 9 shows alignment options exist, but since the question does not mention alignment constraints, no filter is applied per the contrapositive test.\nAssumption 3: [CONFIRMED] Query 3 proves that there are exactly 3 superheroes with a NULL publisher_id.\nAssumption 4: [CONFIRMED] Query 8 proves that multiple superheroes share the same name (e.g., 'Atlas'), confirming that counting by id is required for accuracy.\nAssumption 5: [CONFIRMED] This is a logical requirement of the request to \"Find the difference\" and will be handled in the final calculation.",
+   "phase4b": "YES, the original hypothesis holds. The query results confirmed that counting by primary key is essential due to duplicate names and that some superheroes lack publisher assignments. I was surprised to see an empty string as a publisher name in Query 13, which suggests data cleanliness issues. My updated hypothesis is to join the superhero table and the publisher table on superhero.publisher_id = publisher.id, filter by the exact strings for DC and Marvel (currently [OPEN-VALUE]), count the superhero.id for each, and calculate the absolute difference between these two counts.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "RESOLVE [OPEN-VALUE]: Find the exact string used for DC publishers.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%DC%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "DC Comics"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "RESOLVE [OPEN-VALUE]: Find the exact string used for Marvel publishers.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "RESOLVE [OPEN-VALUE]: Check if there are multiple variations of DC (e.g., 'DC Comics' and 'DC') to ensure no split counts.",
+     "sql": "SELECT publisher_name, COUNT(*) FROM publisher WHERE publisher_name LIKE '%DC%' GROUP BY publisher_name LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       "DC Comics",
+       1
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "RESOLVE [OPEN-VALUE]: Check if there are multiple variations of Marvel (e.g., 'Marvel Comics' and 'Marvel') to ensure no split counts.",
+     "sql": "SELECT publisher_name, COUNT(*) FROM publisher WHERE publisher_name LIKE '%Marvel%' GROUP BY publisher_name LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       "Marvel Comics",
+       1
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "DATA QUALITY: Investigate the empty string publisher found in Query 13.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher_name = '' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       17
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "DATA QUALITY: Check for publishers with names consisting only of whitespace.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name GLOB '*[[:space:]]*' AND LENGTH(TRIM(publisher_name)) = 0 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "CASE SENSITIVITY: Verify if the database is case-sensitive for publisher names.",
+     "sql": "SELECT COUNT(*) FROM publisher WHERE publisher_name = 'dc comics' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "SCOPE VERIFICATION: List all publishers containing the word 'Comics' to understand naming patterns.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Comics%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Dark Horse Comics"
+      ],
+      [
+       "DC Comics"
+      ],
+      [
+       "Icon Comics"
+      ],
+      [
+       "Image Comics"
+      ],
+      [
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "INTEGRITY CHECK: Ensure no superhero is linked to a publisher ID that does not exist in the publisher table.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id NOT IN (SELECT id FROM publisher) LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "CONSISTENCY CHECK: Compare DC and Marvel counts in one result set using exact matches once identified.",
+     "sql": "SELECT publisher_name, COUNT(s.id) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name IN ('DC Comics', 'Marvel') GROUP BY p.publisher_name LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name",
+      "COUNT(s.id)"
+     ],
+     "head": [
+      [
+       "DC Comics",
+       224
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "DATA QUALITY: Check for trailing or leading spaces in the DC and Marvel names.",
+     "sql": "SELECT publisher_name, LENGTH(publisher_name) FROM publisher WHERE publisher_name LIKE '%DC%' OR publisher_name LIKE '%Marvel%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name",
+      "LENGTH(publisher_name)"
+     ],
+     "head": [
+      [
+       "DC Comics",
+       9
+      ],
+      [
+       "Marvel Comics",
+       13
+      ]
+     ],
+     "row_count": 2,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "SCOPE CHECK: Verify if any superheroes have 'DC' or 'Marvel' in their name but are assigned to different publishers.",
+     "sql": "SELECT s.superhero_name, p.publisher_name FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE s.superhero_name LIKE '%DC%' OR s.superhero_name LIKE '%Marvel%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Captain Marvel",
+       "DC Comics"
+      ],
+      [
+       "Captain Marvel",
+       "Marvel Comics"
+      ],
+      [
+       "Captain Marvel II",
+       "DC Comics"
+      ],
+      [
+       "Marvel Girl",
+       "Marvel Comics"
+      ],
+      [
+       "Ms Marvel II",
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "INTEGRITY CHECK: Verify that no publisher has a negative or zero ID.",
+     "sql": "SELECT COUNT(*) FROM publisher WHERE id <= 0 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "DATA QUALITY: Check if any superhero records have an empty string for the name.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE superhero_name = '' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "UNIQUENESS CHECK: Confirm that there are no duplicate IDs in the superhero table.",
+     "sql": "SELECT id, COUNT(*) FROM superhero GROUP BY id HAVING COUNT(*) > 1 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "id",
+      "COUNT(*)"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage3": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "\nYou are the director. You are reviewing the work of a junior analyst who investigated a client\nquestion by running SQL queries against the actual database.\n\nYour analyst is good but not infallible. They may have explored the right tables or the wrong ones.\nWhat they give you is raw data from the database — what columns exist, what values appeared, which\njoins worked, which failed. Your job is to use that evidence to write the final SQL.\n\nRules:\n  1. Use the analyst's query results as your evidence base. Column names, table names, join keys,\n     and filter values from PASSED queries are confirmed to exist in the database — use them exactly\n     as they appeared. Queries that FAILED with \"no such column: X\" confirm that X does not exist.\n  2. The analyst may have queried the wrong table or missed a relevant one. Consider all tables\n     the analyst touched, but also re-read the schema to check if a better path exists.\n  3. Write 5 candidates. Each candidate is your best complete answer under a different\n     interpretation of what the question is asking. The interpretations should differ in\n     meaningful ways: which tables to query, which columns to SELECT, which filters to apply,\n     how to aggregate, or what the question fundamentally means.\n\n       C1 — your primary interpretation: the answer you think is most likely correct based on\n             the question text, evidence, and analyst findings. This should be a complete,\n             production-quality query.\n       C2 — second interpretation: a structurally different reading. Perhaps a different table,\n             a different join path, or a different understanding of which column answers the\n             question (e.g., returning an ID instead of a name, or COUNT instead of a list).\n       C3 — third interpretation: another distinct reading. Could differ in aggregation logic,\n             filter scope, or SELECT shape (e.g., including the metric alongside the result).\n       C4 — fourth interpretation: explores a less obvious reading. Different grouping, an\n             additional condition implied by context, or a different column that could answer\n             the same question.\n       C5 — fifth interpretation, most elaborate: if the question could require comparing a\n             value to an aggregate (average, threshold, rank), use Nested Isolation here:\n               Inner query: compute the aggregate (AVG, MAX, COUNT, etc.)\n               Outer query: filter or join against that aggregate result\n             Pattern: SELECT col FROM t WHERE val > (SELECT AVG(val) FROM t)\n             If no aggregate comparison applies, use the most structurally different approach\n             you can justify.\n\n     Each candidate must be a complete, standalone, executable query — not a fragment or\n     simplification. Five variations of the same WHERE clause with minor tweaks is not five\n     interpretations.\n  4. Each candidate must be a complete, standalone, executable SQL query.\n  5. Different interpretations may reasonably differ in SELECT shape. For example, one\n     interpretation might return only COUNT(*), another might return COUNT(*) with the GROUP BY\n     column, and another might return the actual rows. Let each interpretation dictate its own\n     SELECT — do not artificially restrict columns across all five candidates.\n  6. Use LIMIT only when the question asks for a specific number of results (\"top 3\", \"the one\n     with the highest\"). If the question asks for a list without a count, do not use LIMIT.\n  7. You may use window functions (RANK, ROW_NUMBER, etc.) when the question requires ranking\n     within a group or ordering within a partition.\n\n  Proof-by-Cases principle:\n    C1-C5 must represent genuinely different interpretations of the question. If the correct\n    answer exists, at least one interpretation MUST capture it. Each must be structurally\n    distinct — different tables, joins, groupings, SELECT columns, or filter logic.\n\n  Exclusion Principle:\n    Every element in your SQL must be justified by either:\n      (a) the question text explicitly requiring it, or\n      (b) a PASSED query from the analyst's work confirming it exists and is relevant.\n    Do not add columns \"for context\", filters \"for safety\" (IS NOT NULL, status checks),\n    or joins \"just in case\". Unjustified additions are unproven conjectures — they narrow\n    or widen the result set beyond what was asked and cause failures.\n\n  Evidence hierarchy:\n    - PASSED queries with non-zero rows: proven facts. Use the exact column names, table\n      names, and values as they appeared.\n    - FAILED queries (errors): proven non-existence. The column or table does NOT exist\n      in that form. Do not use it.\n    - Zero-row PASSED queries: the filter combination is valid syntax but matches nothing.\n      Consider whether the filter is too restrictive.\n    - [OPEN-VALUE] / [WRONG-TABLE] tags from the analyst: unresolved conjectures. Prefer\n      alternatives that were actually confirmed.\n\nSQLite rules — non-negotiable:\n  - Column names with spaces or special characters MUST be double-quoted: \"Order Date\"\n  - Every query must begin with SELECT. Never use WITH ... AS (CTEs).\n  - Use whatever SQL structure best serves each interpretation: subqueries, window functions,\n    derived tables, or flat SELECT/JOIN/GROUP BY. The only constraint is correctness.\n  - Any query that joins two or more tables MUST assign a short alias to every table\n    (e.g. FROM movies m JOIN ratings r ON m.movie_id = r.movie_id) and MUST qualify every\n    column reference with its alias (e.g. m.movie_title, not just movie_title). Unqualified\n    column references in multi-table queries are ambiguous and will cause runtime errors.\n\nOutput format:\n## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: [what this reading assumes about the question]\nSELECT t1.col FROM t1 JOIN t2 ON t1.id = t2.fk WHERE t1.filter = value\n\n2. -- Second interpretation: [how this differs from C1]\nSELECT t1.id FROM t1 WHERE t1.different_filter = value\n\n3. -- Third interpretation: [what this captures that C1-C2 miss]\nSELECT t1.col, COUNT(*) FROM t1 GROUP BY t1.col\n\n4. -- Fourth interpretation: [alternative approach]\nSELECT t1.col FROM t1 JOIN t3 ON t1.id = t3.fk WHERE t3.filter = value\n\n5. -- Fifth interpretation: [most elaborate or aggregate-comparison approach]\nSELECT t1.col FROM t1 WHERE t1.val > (SELECT AVG(t2.val) FROM t1 t2)\n\nFormat rules:\n  - Numbered 1 through 5 exactly.\n  - Candidate 1 MUST start with \"1. --\" on its own line — never output the first candidate\n    as raw unnumbered SQL.\n  - Comment on same line as the number, starting with --.\n  - SQL starts on the next line, beginning with SELECT.\n  - Blank line between candidates.\n  - No markdown code fences. No bold. No extra headers.\n",
+   "user_prompt": "Question: Which publisher created more superheroes: DC or Marvel Comics? Find the difference in the number of superheroes.\n\nDatabase: superhero\n\n---\nANALYST WORK PRODUCT\n\nStage 1 — What was checked and what was found:\n1. Checked: EXISTENCE LEMMA: Prove which publisher names actually exist to avoid guessing 'DC' vs 'DC Comics'.\n   Result: publisher_name: \n   (20 rows total)\n\n2. Checked: AXIOMATIC NEUTRALITY: Establish the unfiltered baseline of all superheroes in the database.\n   Result: COUNT(*): 750\n\n3. Checked: COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to see if some heroes are unassigned.\n   Result: nulls: 3 | total: 750\n\n4. Checked: CONNECTIVITY LEMMA: Verify the join key exists on the superhero side.\n   Result: publisher_id: 13\n   (5 rows total)\n\n5. Checked: CONNECTIVITY LEMMA: Verify the join key exists on the publisher side.\n   Result: id: 1\n   (5 rows total)\n\n6. Checked: SCOPE PROOF: Count superheroes for a potential 'DC' match to see if it returns data.\n   Result: COUNT(*): 224\n\n7. Checked: SCOPE PROOF: Count superheroes for a potential 'Marvel' match to see if it returns data.\n   Result: COUNT(*): 387\n\n8. Checked: IDENTIFIER PRECISION: Check if there are duplicate superhero names with different IDs.\n   Result: superhero_name: Angel | COUNT(*): 2\n   (5 rows total)\n\n9. Checked: EXISTENCE LEMMA: Confirm the distinct values of alignment to see if \"superhero\" implies a specific alignment.\n   Result: alignment: Good\n   (4 rows total)\n\n10. Checked: COLUMN SUITABILITY PROOF: Check for nulls in superhero_name to ensure data quality.\n   Result: nulls: 0 | total: 750\n\n11. Checked: SCOPE PROOF: Verify the number of publishers available in the system.\n   Result: COUNT(*): 25\n\n12. Checked: CONNECTIVITY LEMMA: Ensure that every publisher ID in the publisher table has at least one hero (or check for empty publishers).\n   Result: (no rows returned)\n\n13. Checked: EXISTENCE LEMMA: Check if there are any other major publishers that might be confused with DC or Marvel.\n   Result: publisher_name: \n   (20 rows total)\n\n14. Checked: SCOPE PROOF: Compare the count of superheroes assigned to a publisher vs those not assigned.\n   Result: status: Assigned | COUNT(*): 747\n   (2 rows total)\n\n15. Checked: JOIN VERIFICATION: Verify that the join between superhero and publisher does not result in row multiplication.\n   Result: COUNT(*): 747\n\n\nStage 2 — Hypothesis verdict (Phase 4):\nAssumption 1: [OPEN-VALUE] Query 6 and 7 used LIKE filters, but a SELECT DISTINCT query has not yet provided the exact string values for both DC and Marvel publishers.\nAssumption 2: [CONFIRMED] Query 9 shows alignment options exist, but since the question does not mention alignment constraints, no filter is applied per the contrapositive test.\nAssumption 3: [CONFIRMED] Query 3 proves that there are exactly 3 superheroes with a NULL publisher_id.\nAssumption 4: [CONFIRMED] Query 8 proves that multiple superheroes share the same name (e.g., 'Atlas'), confirming that counting by id is required for accuracy.\nAssumption 5: [CONFIRMED] This is a logical requirement of the request to \"Find the difference\" and will be handled in the final calculation.\n\nStage 2 — Winning hypothesis (Phase 4b):\nYES, the original hypothesis holds. The query results confirmed that counting by primary key is essential due to duplicate names and that some superheroes lack publisher assignments. I was surprised to see an empty string as a publisher name in Query 13, which suggests data cleanliness issues. My updated hypothesis is to join the superhero table and the publisher table on superhero.publisher_id = publisher.id, filter by the exact strings for DC and Marvel (currently [OPEN-VALUE]), count the superhero.id for each, and calculate the absolute difference between these two counts.\n\nStage 2 — Confirmation checks and what was found:\n1. Checked: RESOLVE [OPEN-VALUE]: Find the exact string used for DC publishers.\n   Result: publisher_name: DC Comics\n\n2. Checked: RESOLVE [OPEN-VALUE]: Find the exact string used for Marvel publishers.\n   Result: publisher_name: Marvel Comics\n\n3. Checked: RESOLVE [OPEN-VALUE]: Check if there are multiple variations of DC (e.g., 'DC Comics' and 'DC') to ensure no split counts.\n   Result: publisher_name: DC Comics | COUNT(*): 1\n\n4. Checked: RESOLVE [OPEN-VALUE]: Check if there are multiple variations of Marvel (e.g., 'Marvel Comics' and 'Marvel') to ensure no split counts.\n   Result: publisher_name: Marvel Comics | COUNT(*): 1\n\n5. Checked: DATA QUALITY: Investigate the empty string publisher found in Query 13.\n   Result: COUNT(*): 17\n\n6. Checked: DATA QUALITY: Check for publishers with names consisting only of whitespace.\n   Result: (no rows returned)\n\n7. Checked: CASE SENSITIVITY: Verify if the database is case-sensitive for publisher names.\n   Result: COUNT(*): 0\n\n8. Checked: SCOPE VERIFICATION: List all publishers containing the word 'Comics' to understand naming patterns.\n   Result: publisher_name: Dark Horse Comics\n   (5 rows total)\n\n9. Checked: INTEGRITY CHECK: Ensure no superhero is linked to a publisher ID that does not exist in the publisher table.\n   Result: COUNT(*): 0\n\n10. Checked: CONSISTENCY CHECK: Compare DC and Marvel counts in one result set using exact matches once identified.\n   Result: publisher_name: DC Comics | COUNT(s.id): 224\n\n11. Checked: DATA QUALITY: Check for trailing or leading spaces in the DC and Marvel names.\n   Result: publisher_name: DC Comics | LENGTH(publisher_name): 9\n   (2 rows total)\n\n12. Checked: SCOPE CHECK: Verify if any superheroes have 'DC' or 'Marvel' in their name but are assigned to different publishers.\n   Result: superhero_name: Captain Marvel | publisher_name: DC Comics\n   (5 rows total)\n\n13. Checked: INTEGRITY CHECK: Verify that no publisher has a negative or zero ID.\n   Result: COUNT(*): 0\n\n14. Checked: DATA QUALITY: Check if any superhero records have an empty string for the name.\n   Result: COUNT(*): 0\n\n15. Checked: UNIQUENESS CHECK: Confirm that there are no duplicate IDs in the superhero table.\n   Result: (no rows returned)\n\n\n---\nWrite 5 candidate SQL queries sweeping from the least to the most work required to answer the question.",
+   "response": "## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: Calculate the difference by subtracting the count of DC Comics superheroes from Marvel Comics superheroes using scalar subqueries with joins.\nSELECT (SELECT COUNT(s.id) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'Marvel Comics') - (SELECT COUNT(s.id) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'DC Comics')\n\n2. -- Second interpretation: Use conditional aggregation within a single join to calculate the difference between the two publishers.\nSELECT SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) - SUM(CASE WHEN p.publisher_name = 'DC Comics' THEN 1 ELSE 0 END) FROM superhero s JOIN publisher p ON s.publisher_id = p.id\n\n3. -- Third interpretation: Calculate the absolute difference to ensure a positive result regardless of which publisher is larger, using conditional counts.\nSELECT ABS(COUNT(CASE WHEN p.publisher_name = 'Marvel Comics' THEN s.id END) - COUNT(CASE WHEN p.publisher_name = 'DC Comics' THEN s.id END)) FROM superhero s JOIN publisher p ON s.publisher_id = p.id\n\n4. -- Fourth interpretation: Use a derived table to group counts by publisher and then find the difference between the maximum and minimum values among those two publishers.\nSELECT MAX(cnt) - MIN(cnt) FROM (SELECT COUNT(s.id) AS cnt FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name IN ('Marvel Comics', 'DC Comics') GROUP BY p.publisher_name)\n\n5. -- Fifth interpretation: Use nested isolation to first resolve the specific IDs for each publisher and then count superheroes associated with those IDs.\nSELECT (SELECT COUNT(*) FROM superhero s WHERE s.publisher_id = (SELECT p.id FROM publisher p WHERE p.publisher_name = 'Marvel Comics')) - (SELECT COUNT(*) FROM superhero s WHERE s.publisher_id = (SELECT p.id FROM publisher p WHERE p.publisher_name = 'DC Comics'))",
+   "candidates": [
+    {
+     "n": 1,
+     "comment": "Primary interpretation: Calculate the difference by subtracting the count of DC Comics superheroes from Marvel Comics superheroes using scalar subqueries with joins.",
+     "sql": "SELECT (SELECT COUNT(s.id) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'Marvel Comics') - (SELECT COUNT(s.id) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'DC Comics')",
+     "status": "success",
+     "columns": [
+      "(SELECT COUNT(s.id) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'Marvel Comics') - (SELECT COUNT(s.id) FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name = 'DC Comics')"
+     ],
+     "rows": [
+      [
+       163
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 2,
+     "comment": "Second interpretation: Use conditional aggregation within a single join to calculate the difference between the two publishers.",
+     "sql": "SELECT SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) - SUM(CASE WHEN p.publisher_name = 'DC Comics' THEN 1 ELSE 0 END) FROM superhero s JOIN publisher p ON s.publisher_id = p.id",
+     "status": "success",
+     "columns": [
+      "SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) - SUM(CASE WHEN p.publisher_name = 'DC Comics' THEN 1 ELSE 0 END)"
+     ],
+     "rows": [
+      [
+       163
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 3,
+     "comment": "Third interpretation: Calculate the absolute difference to ensure a positive result regardless of which publisher is larger, using conditional counts.",
+     "sql": "SELECT ABS(COUNT(CASE WHEN p.publisher_name = 'Marvel Comics' THEN s.id END) - COUNT(CASE WHEN p.publisher_name = 'DC Comics' THEN s.id END)) FROM superhero s JOIN publisher p ON s.publisher_id = p.id",
+     "status": "success",
+     "columns": [
+      "ABS(COUNT(CASE WHEN p.publisher_name = 'Marvel Comics' THEN s.id END) - COUNT(CASE WHEN p.publisher_name = 'DC Comics' THEN s.id END))"
+     ],
+     "rows": [
+      [
+       163
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 4,
+     "comment": "Fourth interpretation: Use a derived table to group counts by publisher and then find the difference between the maximum and minimum values among those two publishers.",
+     "sql": "SELECT MAX(cnt) - MIN(cnt) FROM (SELECT COUNT(s.id) AS cnt FROM superhero s JOIN publisher p ON s.publisher_id = p.id WHERE p.publisher_name IN ('Marvel Comics', 'DC Comics') GROUP BY p.publisher_name)",
+     "status": "success",
+     "columns": [
+      "MAX(cnt) - MIN(cnt)"
+     ],
+     "rows": [
+      [
+       163
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 5,
+     "comment": "Fifth interpretation: Use nested isolation to first resolve the specific IDs for each publisher and then count superheroes associated with those IDs.",
+     "sql": "SELECT (SELECT COUNT(*) FROM superhero s WHERE s.publisher_id = (SELECT p.id FROM publisher p WHERE p.publisher_name = 'Marvel Comics')) - (SELECT COUNT(*) FROM superhero s WHERE s.publisher_id = (SELECT p.id FROM publisher p WHERE p.publisher_name = 'DC Comics'))",
+     "status": "success",
+     "columns": [
+      "(SELECT COUNT(*) FROM superhero s WHERE s.publisher_id = (SELECT p.id FROM publisher p WHERE p.publisher_name = 'Marvel Comics')) - (SELECT COUNT(*) FROM superhero s WHERE s.publisher_id = (SELECT p.id FROM publisher p WHERE p.publisher_name = 'DC Comics'))"
+     ],
+     "rows": [
+      [
+       163
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    }
+   ],
+   "chosen": 1,
+   "gold_result": {
+    "columns": [
+     "SUM(CASE WHEN T2.publisher_name = 'DC Comics' THEN 1 ELSE 0 END) - SUM(CASE WHEN T2.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END)"
+    ],
+    "rows": [
+     [
+      -163
+     ]
+    ],
+    "row_count": 1
+   }
+  }
+ },
+ "noev_elapsed_s": 504.9,
+ "noev_error": null
+}

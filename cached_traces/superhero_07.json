@@ -1,0 +1,2031 @@
+{
+ "db_id": "superhero",
+ "question": "Provide the hair colour of the human superhero who is 185 cm tall.",
+ "evidence": "185 cm tall refers to height_cm = 185; human superhero refers to race = 'human'; hair colour refers to colour where hair_colour_id = colour.id;",
+ "gold_sql": "SELECT DISTINCT T3.colour FROM superhero AS T1 INNER JOIN race AS T2 ON T1.race_id = T2.id INNER JOIN colour AS T3 ON T1.hair_colour_id = T3.id WHERE T1.height_cm = 185 AND T2.race = 'Human'",
+ "models": {
+  "stage1": "google/gemma-4-31b",
+  "stage2": "google/gemma-4-31b",
+  "stage3": "google/gemma-4-31b"
+ },
+ "stages": {
+  "stage1": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Today is your first day at a new company.\n\nNormally this work takes three days. You do not have three days. You have to do it all today.\n\nHere is how you think through a new client question:\n\nPHASE 1 — Before you look at anything:\nYou read the question and evidence first, with the schema face-down. You write out every question\nyou would want answered and every assumption you are making. You are a philosopher — you think in\nwho, what, when, where, by whom, for whom. You think in counter-proofs. What would make an\nassumption wrong? What encoding or edge case breaks the obvious reading? Stating a wrong assumption\nexplicitly is more honest and useful than a vague non-answer.\n\nPHASE 2 — You look at the schema:\nThe data dictionary arrives: table names, column names, types, primary keys, and foreign key\nrelationships. You do NOT get statistics — no min, max, null counts, or sample values. That is\nwhat Phase 3 is for. Some of your Phase 1 assumptions will be confirmed. Some will be wrong. Some\nnew questions will appear that you could not have thought of without seeing the actual column names.\nYou update every assumption. You tag each question.\n\nPHASE 3 — You write exploratory SQL:\nYou have database access. You are excited and thorough. You know that being new means you earn trust\nby being rigorous, not reckless. You have two phases of thinking behind you — now you turn that into\nexploratory SQL. Write at least 15 queries. The system will reject outputs with fewer than 5 —\nthose records will be skipped entirely and the question will not advance to the next stage.\n\nYou have six proof obligations:\n\n1. EXISTENCE LEMMA (DISTINCT probes):\n   For every categorical column you plan to filter on, run SELECT DISTINCT col FROM table LIMIT 20.\n   This is a direct proof of existence — it proves which values actually live in the database.\n   Without this proof, any filter using that column is an ungrounded conjecture. The system will\n   treat unproven filter values as errors in Stage 2.\n\n2. CONNECTIVITY LEMMA (join verification):\n   Before writing any multi-table JOIN, prove the join path works. Run a query on each side of the\n   join key: SELECT DISTINCT join_col FROM table_a LIMIT 5 and SELECT DISTINCT join_col FROM table_b\n   LIMIT 5. If both return values and they overlap, the join is proven. If either returns zero rows\n   or different types, the join is disproven — do not use it.\n\n3. AXIOMATIC NEUTRALITY (contrapositive for filters):\n   Do not add status, active/inactive, or any other filter unless the question explicitly mentions\n   it. Assume the contrapositive: if the question does not mention a constraint, its absence is\n   correct until you prove otherwise. Run at least one query WITHOUT any assumed filter to establish\n   the unfiltered baseline.\n\n4. COLUMN SUITABILITY PROOFS (null-count & scope):\n   Before using any column for aggregation (COUNT, AVG, SUM, MAX, MIN), run a null-count query:\n   SELECT COUNT(*) - COUNT(col) as nulls, COUNT(*) as total FROM table.\n   If nulls exceed 50% of total, that column is statistically unsuitable as a primary metric —\n   look for alternatives. After identifying your primary filter value, run TWO scope queries:\n   (a) one query WITHOUT the filter — note the total row count (unfiltered universe).\n   (b) one query WITH the filter — note the filtered row count.\n   Compare: if filtered count equals unfiltered count, the filter is a no-op and likely wrong.\n   If filtered count is zero, the value does not exist. Both indicate a scope mismatch.\n\n5. ANNOTATION LEMMA (semantic mapping of opaque columns):\n   If the schema contains column names that are short codes, single letters, abbreviations, or\n   numeric identifiers (e.g., col1, X, stat, code_a), you cannot assume their meaning from the\n   name alone. For every such opaque column that could be relevant to the question, run:\n   SELECT DISTINCT col FROM table LIMIT 20\n   Then annotate each with its apparent meaning based on the values returned. Format your comment:\n   \"ANNOTATION LEMMA: col_name appears to be [description] (values: val1, val2, val3)\"\n   This is a direct proof of semantic identity — without it, any use of an opaque column is an\n   ungrounded assumption about what the column contains.\n\n6. JOIN VERIFICATION (non-key joins):\n   The schema marks primary keys [PK] and foreign keys [FK]. If you plan to join two tables on\n   a column that is NOT marked as a PK or FK, you must prove the join is valid by querying both\n   sides: SELECT DISTINCT col FROM table_a LIMIT 5 and SELECT DISTINCT col FROM table_b LIMIT 5.\n   If the values do not overlap, the join is invalid. PK/FK joins are pre-verified by the schema.\n\nAdditional rules:\n- Multi-part question decomposition: Before writing any Phase 1 assumptions, read the\n  question and ask: does it contain multiple distinct sub-questions? A multi-part question\n  typically uses connectors like \"and\", \"also\", \"as well as\", or asks for two different\n  pieces of information in one sentence (e.g. \"What is X? What is Y for Z?\"). If yes,\n  list each sub-question separately in Phase 1 and treat them as independent proof obligations.\n  Your Phase 3 queries must cover every part — a query that only answers one part of a\n  multi-part question is incomplete. The final SQL must return all parts in a single query\n  (using JOIN, subquery, or multiple SELECT expressions as appropriate).\n- Cover all tables that could relate to the question, not just the most obvious one.\n- SELECT only the columns needed for each specific check — no extra \"context\" columns.\n- Identifier Precision: Determine whether the question asks for a primary identifier\n  (ID, code, number) or a descriptive label (name, title, description). If both columns exist\n  side by side in the same table, run a DISTINCT query on each. Your Phase 1 assumptions must\n  explicitly state which column type the question wants. This prevents the Director from\n  guessing at the SELECT column later.\n- Each query has exactly one SQL comment (-- ...) that is a single complete sentence explaining\n  why this specific piece of information matters for answering the client question.\n- Always use LIMIT. Check both heads and tails for any table you are uncertain about.\n- Do NOT write the final answer query — that comes after you see what these return.\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\nA numbered list. For each item: state the question, then immediately state your current assumption.\nAssumptions can be wrong — that is expected and useful.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, explaining why these are the\nright questions to ask.\n\n## PHASE 2 — SCHEMA REVIEW\nA numbered list. For each item from Phase 1, mark it with exactly one tag:\n  [CONFIRMED] — the profile supports your Phase 1 assumption\n  [REVISED]   — you need to update your assumption based on what you see\n  [NEW]       — a question that did not exist in Phase 1, raised by the schema or statistics\n  [DROPPED]   — this question is no longer relevant given what the profile shows\n\nAfter the tag, give a brief one-sentence reason.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, describing what the profile\nrevealed and what still requires direct database investigation.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\nA numbered list of SQL queries. Minimum 15 queries.\n\nSQLite rules — this is non-negotiable:\n- The database engine is SQLite. Write only SQL that SQLite supports.\n- Column names that contain spaces, parentheses, or special characters MUST be\n  wrapped in double quotes. Example: \"County Name\", \"Free Meal Count (K-12)\".\n  Never write an unquoted column name that contains a space.\n- Do not use window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.).\n- Always use LIMIT.\n- Do NOT write the final answer query.\n\nOutput format for Phase 3 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the department_type column.\n   SELECT DISTINCT department_type FROM departments LIMIT 20;\n\n2. -- SCOPE CHECK: Establish the time range covered by the data.\n   SELECT MIN(hire_date), MAX(hire_date) FROM employees LIMIT 1;\n\n3. -- NULL-COUNT PROOF: Verify salary column suitability for aggregation.\n   SELECT COUNT(*) - COUNT(salary) as nulls, COUNT(*) as total FROM employees LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between employees and departments.\n   SELECT DISTINCT department_id FROM employees LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Other side of the join.\n   SELECT DISTINCT id FROM departments LIMIT 5;\n\n6. -- ANNOTATION LEMMA: Determine what opaque column 'dept_code' actually contains.\n   SELECT DISTINCT dept_code FROM departments LIMIT 20;\n\n7. -- JOIN VERIFICATION: Verify non-key join between employees.role and roles.role_name.\n   SELECT DISTINCT role FROM employees LIMIT 5;\n\n8. -- SCOPE PROOF: Unfiltered universe count for the target table.\n   SELECT COUNT(*) FROM employees LIMIT 1;\n\n9. -- SCOPE PROOF: Filtered count — verify filter narrows to expected scope.\n   SELECT COUNT(*) FROM employees WHERE department_type = 'Engineering' LIMIT 1;",
+   "user_prompt": "A new client question just arrived on your desk.\n\nQuestion: Provide the hair colour of the human superhero who is 185 cm tall.\nEvidence: 185 cm tall refers to height_cm = 185; human superhero refers to race = 'human'; hair colour refers to colour where hair_colour_id = colour.id;\n\nDatabase: superhero\n\nSchema (table names, column names, types, primary keys, foreign keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nWork through all three phases now.",
+   "response": "## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\n\n1. Does the race table use the exact string 'human' for humans? Assumption: The value is exactly 'human' in lowercase.\n2. Is there only one human superhero with a height of 185 cm? Assumption: There is a unique individual matching these criteria.\n3. Does the question ask for the name of the color or the ID of the color? Assumption: It asks for the descriptive label found in the colour column of the colour table.\n4. Is the height_cm column stored as an integer where 185 represents exactly 185 centimeters? Assumption: The unit is consistent and the value is a whole number.\n5. Are there any hidden status filters (e.g., \"active\" superheroes) that should be applied? Assumption: No such filter exists or is required unless explicitly stated.\n\nREASONING\nThe request requires filtering by two specific attributes across different tables.\nI must verify the exact string representation of 'human' to avoid case-sensitivity errors.\nUniqueness of the target superhero is a critical assumption for a single-value answer.\nMapping the hair color ID to a descriptive label is necessary for a human-readable result.\nEstablishing a baseline without filters ensures I understand the total population size.\n\n## PHASE 2 — SCHEMA REVIEW\n\n1. [CONFIRMED] The race table contains a 'race' text column which likely holds the value 'human'.\n2. [REVISED] While the schema allows for multiple superheroes, I must verify if height and race combinations are unique via data probes.\n3. [CONFIRMED] The colour table has a 'colour' text column that maps to hair_colour_id in the superhero table.\n4. [CONFIRMED] The superhero table contains height_cm as an integer, matching the evidence provided.\n5. [CONFIRMED] There are no status or active/inactive columns in the superhero table, supporting the assumption of axiomatic neutrality.\n\nREASONING\nThe schema confirms a standard normalized structure with foreign keys linking superheroes to race and colour.\nJoin paths between superhero, race, and colour are clearly defined via PK/FK relationships.\nI have identified that hair_colour_id is the specific link needed for the final answer.\nThe evidence provided aligns perfectly with the column names in the schema.\nDirect database investigation is now required to verify value existence and record counts.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\n\n1. -- EXISTENCE LEMMA: Verify that 'human' exists as a value in the race table.\n   SELECT DISTINCT race FROM race LIMIT 20;\n\n2. -- EXISTENCE LEMMA: Confirm what distinct hair colour labels are available.\n   SELECT DISTINCT colour FROM colour LIMIT 20;\n\n3. -- CONNECTIVITY LEMMA: Verify join key values on the superhero side for race.\n   SELECT DISTINCT race_id FROM superhero LIMIT 5;\n\n4. -- CONNECTIVITY LEMMA: Verify join key values on the race side.\n   SELECT DISTINCT id FROM race LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Verify join key values on the superhero side for hair colour.\n   SELECT DISTINCT hair_colour_id FROM superhero LIMIT 5;\n\n6. -- CONNECTIVITY LEMMA: Verify join key values on the colour side.\n   SELECT DISTINCT id FROM colour LIMIT 5;\n\n7. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\n   SELECT COUNT(*) FROM superhero LIMIT 1;\n\n8. -- COLUMN SUITABILITY PROOF: Check for nulls in height_cm to ensure it is a reliable filter.\n   SELECT COUNT(*) - COUNT(height_cm) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n9. -- COLUMN SUITABILITY PROOF: Check for nulls in hair_colour_id to see if the target metric is missing.\n   SELECT COUNT(*) - COUNT(hair_colour_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n10. -- COLUMN SUITABILITY PROOF: Check for nulls in race_id to ensure race filtering is possible.\n    SELECT COUNT(*) - COUNT(race_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n11. -- SCOPE PROOF: Determine how many superheroes have a height of exactly 185 cm.\n    SELECT COUNT(*) FROM superhero WHERE height_cm = 185 LIMIT 1;\n\n12. -- SCOPE PROOF: Determine how many superheroes are classified as human.\n    SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE race.race = 'human' LIMIT 1;\n\n13. -- SCOPE PROOF: Verify the intersection of height=185 and race='human'.\n    SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'human' LIMIT 1;\n\n14. -- IDENTIFIER PRECISION: Check if multiple superheroes match the criteria to test uniqueness.\n    SELECT superhero_name, full_name FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'human' LIMIT 20;\n\n15. -- ANNOTATION LEMMA: Check if the colour column contains descriptive names or codes.\n    SELECT DISTINCT colour FROM colour LIMIT 20;",
+   "phase1": "1. Does the race table use the exact string 'human' for humans? Assumption: The value is exactly 'human' in lowercase.\n2. Is there only one human superhero with a height of 185 cm? Assumption: There is a unique individual matching these criteria.\n3. Does the question ask for the name of the color or the ID of the color? Assumption: It asks for the descriptive label found in the colour column of the colour table.\n4. Is the height_cm column stored as an integer where 185 represents exactly 185 centimeters? Assumption: The unit is consistent and the value is a whole number.\n5. Are there any hidden status filters (e.g., \"active\" superheroes) that should be applied? Assumption: No such filter exists or is required unless explicitly stated.\n\nREASONING\nThe request requires filtering by two specific attributes across different tables.\nI must verify the exact string representation of 'human' to avoid case-sensitivity errors.\nUniqueness of the target superhero is a critical assumption for a single-value answer.\nMapping the hair color ID to a descriptive label is necessary for a human-readable result.\nEstablishing a baseline without filters ensures I understand the total population size.",
+   "phase2": "1. [CONFIRMED] The race table contains a 'race' text column which likely holds the value 'human'.\n2. [REVISED] While the schema allows for multiple superheroes, I must verify if height and race combinations are unique via data probes.\n3. [CONFIRMED] The colour table has a 'colour' text column that maps to hair_colour_id in the superhero table.\n4. [CONFIRMED] The superhero table contains height_cm as an integer, matching the evidence provided.\n5. [CONFIRMED] There are no status or active/inactive columns in the superhero table, supporting the assumption of axiomatic neutrality.\n\nREASONING\nThe schema confirms a standard normalized structure with foreign keys linking superheroes to race and colour.\nJoin paths between superhero, race, and colour are clearly defined via PK/FK relationships.\nI have identified that hair_colour_id is the specific link needed for the final answer.\nThe evidence provided aligns perfectly with the column names in the schema.\nDirect database investigation is now required to verify value existence and record counts.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "EXISTENCE LEMMA: Verify that 'human' exists as a value in the race table.",
+     "sql": "SELECT DISTINCT race FROM race LIMIT 20",
+     "status": "success",
+     "columns": [
+      "race"
+     ],
+     "head": [
+      [
+       "-"
+      ],
+      [
+       "Alien"
+      ],
+      [
+       "Alpha"
+      ],
+      [
+       "Amazon"
+      ],
+      [
+       "Android"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "EXISTENCE LEMMA: Confirm what distinct hair colour labels are available.",
+     "sql": "SELECT DISTINCT colour FROM colour LIMIT 20",
+     "status": "success",
+     "columns": [
+      "colour"
+     ],
+     "head": [
+      [
+       "No Colour"
+      ],
+      [
+       "Amber"
+      ],
+      [
+       "Auburn"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Black/Blue"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "CONNECTIVITY LEMMA: Verify join key values on the superhero side for race.",
+     "sql": "SELECT DISTINCT race_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "race_id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       24
+      ],
+      [
+       33
+      ],
+      [
+       55
+      ],
+      [
+       28
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "CONNECTIVITY LEMMA: Verify join key values on the race side.",
+     "sql": "SELECT DISTINCT id FROM race LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "CONNECTIVITY LEMMA: Verify join key values on the superhero side for hair colour.",
+     "sql": "SELECT DISTINCT hair_colour_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "hair_colour_id"
+     ],
+     "head": [
+      [
+       13
+      ],
+      [
+       1
+      ],
+      [
+       4
+      ],
+      [
+       6
+      ],
+      [
+       9
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "CONNECTIVITY LEMMA: Verify join key values on the colour side.",
+     "sql": "SELECT DISTINCT id FROM colour LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.",
+     "sql": "SELECT COUNT(*) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in height_cm to ensure it is a reliable filter.",
+     "sql": "SELECT COUNT(*) - COUNT(height_cm) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       58,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in hair_colour_id to see if the target metric is missing.",
+     "sql": "SELECT COUNT(*) - COUNT(hair_colour_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in race_id to ensure race filtering is possible.",
+     "sql": "SELECT COUNT(*) - COUNT(race_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       4,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "SCOPE PROOF: Determine how many superheroes have a height of exactly 185 cm.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE height_cm = 185 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       36
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "SCOPE PROOF: Determine how many superheroes are classified as human.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE race.race = 'human' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "SCOPE PROOF: Verify the intersection of height=185 and race='human'.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'human' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "IDENTIFIER PRECISION: Check if multiple superheroes match the criteria to test uniqueness.",
+     "sql": "SELECT superhero_name, full_name FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'human' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "full_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "ANNOTATION LEMMA: Check if the colour column contains descriptive names or codes.",
+     "sql": "SELECT DISTINCT colour FROM colour LIMIT 20",
+     "status": "success",
+     "columns": [
+      "colour"
+     ],
+     "head": [
+      [
+       "No Colour"
+      ],
+      [
+       "Amber"
+      ],
+      [
+       "Auburn"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Black/Blue"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage2": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Yesterday you worked through a client question in three phases:\nPhase 1 — questions and assumptions written before seeing the schema.\nPhase 2 — schema review, assumptions updated against column profiles.\nPhase 3 — exploratory SQL queries written to investigate the data.\n\nNow the queries have run. You have the results in front of you.\n\nYour job today is three phases:\n\nPHASE 4 — REVISED ASSUMPTIONS\nGo through every assumption you made in Phases 1 and 2. For each one, state what the query results show.\nTag each item with exactly one of:\n  [CONFIRMED]    — a PASSED query directly proves this assumption. Cite the query number.\n  [REVISED]      — results partially support but require adjustment. State what changed and why.\n  [CONTRADICTED] — a query returned zero rows, an error, or unexpected data that disproves this\n                   hypothesis. This is not a failure — it is a proof by contradiction. State clearly\n                   what was disproven and what it implies.\n  [OPEN-VALUE]   — an assumption involves a string filter value that was NEVER confirmed with a\n                   SELECT DISTINCT query. This is an open conjecture — the Director cannot use it.\n                   Phase 5 MUST include a DISTINCT query to resolve it.\n  [WRONG-TABLE]  — query results suggest the data does not live in the assumed table (column doesn't\n                   exist, zero rows where many were expected, data type mismatch). The hypothesis\n                   about which table to use is disproven. Phase 5 must explore the alternative.\n  [LIKE-VS-ENUM] — the analyst used LIKE or a substring match on a name/description column, but\n                   the schema may contain a separate coded or enum column for the same concept\n                   (e.g., filtering by name string when a type_code column exists). Phase 5 MUST\n                   include a DISTINCT query on the potential enum column to check if it provides\n                   a cleaner, exact-match filter.\n\nAfter the tag, write one sentence citing which query result led to this conclusion.\n\nContrapositive test for filters: For each filter in your hypothesis, apply the contrapositive test:\n\"If the question does not explicitly mention this constraint, then it should NOT appear in the WHERE\nclause.\" If Stage 1 added a filter that the question never asked for (e.g. a status filter, an\nactive/inactive check), tag it [CONTRADICTED] with reason: \"contrapositive — question does not\nmention this constraint.\"\n\nPHASE 4b — HYPOTHESIS REVIEW\nWrite a short paragraph (3–5 sentences) answering:\n  1. Does your original hypothesis about how to answer this question still hold?\n     State clearly: YES it holds, NO it needs to change, or PARTIALLY — explain what changed.\n  2. Did the query results reveal anything you did not expect? If so, what?\n  3. What is your updated hypothesis for the final SQL approach?\n\nYour updated hypothesis must name:\n  - The exact table name(s) as they appear in the schema\n  - The exact column name(s) — quoted if they contain spaces\n  - The exact confirmed string value (if a filter is needed) — proven by a DISTINCT query\n  - The exact join path (if tables must be joined) — proven by connectivity lemma queries\n  Vague hypotheses like \"filter by type\" or \"join on the ID column\" are rejected.\n  If any piece is uncertain, tag it [OPEN-VALUE] and resolve it in Phase 5.\n\nPHASE 5 — CONFIRMATION QUERIES\nWrite at least 15 new SQL queries. The system will reject outputs with fewer than 5 — those records\nwill be skipped entirely. These are not exploratory — they are targeted at the gaps, surprises, and\nrevised assumptions from Phases 4 and 4b.\n\nMandatory resolution: Every [OPEN-VALUE] and [WRONG-TABLE] from Phase 4 MUST have a corresponding\nresolution query in Phase 5. An unresolved conjecture is a gap that the Director will fill with\nguesswork — and guesswork is how we get wrong answers.\n  - For [OPEN-VALUE]: run SELECT DISTINCT col FROM table LIMIT 20 to prove the exact value.\n  - For [WRONG-TABLE]: run exploratory queries against the alternative table.\n  - For [LIKE-VS-ENUM]: run SELECT DISTINCT enum_col FROM table LIMIT 20. If the enum column\n    provides exact values that match the question's intent, recommend it over the LIKE filter\n    in your Phase 4b hypothesis update.\n\nDo not repeat queries from Phase 3. Each query must address something new.\n\nSQLite rules — same as before, non-negotiable:\n- Column names with spaces or special characters MUST be double-quoted: \"County Name\"\n- No window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.)\n- Always use LIMIT\n- Do NOT write the final answer query\n\nOutput format for Phase 5 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- RESOLVE [OPEN-VALUE]: Prove what distinct values exist in order_status.\n   SELECT DISTINCT order_status FROM orders LIMIT 20;\n\n2. -- RESOLVE [WRONG-TABLE]: Check if revenue data lives in invoices instead of orders.\n   SELECT COUNT(*), MIN(total), MAX(total) FROM invoices LIMIT 1;\n\n3. -- CONTRAPOSITIVE TEST: Verify results without the assumed 'active' filter.\n   SELECT COUNT(*) FROM customers LIMIT 1;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check if department_code is a cleaner filter than department_name.\n   SELECT DISTINCT department_code, department_name FROM departments LIMIT 20;\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 4 — REVISED ASSUMPTIONS\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\n## PHASE 5 — CONFIRMATION QUERIES",
+   "user_prompt": "The query results are in. Time to review.\n\nQuestion: Provide the hair colour of the human superhero who is 185 cm tall.\nEvidence: 185 cm tall refers to height_cm = 185; human superhero refers to race = 'human'; hair colour refers to colour where hair_colour_id = colour.id;\n\nDatabase: superhero\n\nSchema (same as before — table names, column names, types, join keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\n---\n\nYour Phase 1 — Two Semantic Hypotheses:\n\n1. Does the race table use the exact string 'human' for humans? Assumption: The value is exactly 'human' in lowercase.\n2. Is there only one human superhero with a height of 185 cm? Assumption: There is a unique individual matching these criteria.\n3. Does the question ask for the name of the color or the ID of the color? Assumption: It asks for the descriptive label found in the colour column of the colour table.\n4. Is the height_cm column stored as an integer where 185 represents exactly 185 centimeters? Assumption: The unit is consistent and the value is a whole number.\n5. Are there any hidden status filters (e.g., \"active\" superheroes) that should be applied? Assumption: No such filter exists or is required unless explicitly stated.\n\nREASONING\nThe request requires filtering by two specific attributes across different tables.\nI must verify the exact string representation of 'human' to avoid case-sensitivity errors.\nUniqueness of the target superhero is a critical assumption for a single-value answer.\nMapping the hair color ID to a descriptive label is necessary for a human-readable result.\nEstablishing a baseline without filters ensures I understand the total population size.\n\n---\n\nYour Phase 2 — Schema Deep Dive:\n\n1. [CONFIRMED] The race table contains a 'race' text column which likely holds the value 'human'.\n2. [REVISED] While the schema allows for multiple superheroes, I must verify if height and race combinations are unique via data probes.\n3. [CONFIRMED] The colour table has a 'colour' text column that maps to hair_colour_id in the superhero table.\n4. [CONFIRMED] The superhero table contains height_cm as an integer, matching the evidence provided.\n5. [CONFIRMED] There are no status or active/inactive columns in the superhero table, supporting the assumption of axiomatic neutrality.\n\nREASONING\nThe schema confirms a standard normalized structure with foreign keys linking superheroes to race and colour.\nJoin paths between superhero, race, and colour are clearly defined via PK/FK relationships.\nI have identified that hair_colour_id is the specific link needed for the final answer.\nThe evidence provided aligns perfectly with the column names in the schema.\nDirect database investigation is now required to verify value existence and record counts.\n\n---\n\nPhase 3 — Exploratory Query Results:\n\n1. -- EXISTENCE LEMMA: Verify that 'human' exists as a value in the race table.\n   SELECT DISTINCT race FROM race LIMIT 20\n   Columns: race\n   ['-']\n   ['Alien']\n   ['Alpha']\n   ... (20 rows total)\n\n2. -- EXISTENCE LEMMA: Confirm what distinct hair colour labels are available.\n   SELECT DISTINCT colour FROM colour LIMIT 20\n   Columns: colour\n   ['No Colour']\n   ['Amber']\n   ['Auburn']\n   ... (20 rows total)\n\n3. -- CONNECTIVITY LEMMA: Verify join key values on the superhero side for race.\n   SELECT DISTINCT race_id FROM superhero LIMIT 5\n   Columns: race_id\n   [1]\n   [24]\n   [33]\n   ... (5 rows total)\n\n4. -- CONNECTIVITY LEMMA: Verify join key values on the race side.\n   SELECT DISTINCT id FROM race LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n5. -- CONNECTIVITY LEMMA: Verify join key values on the superhero side for hair colour.\n   SELECT DISTINCT hair_colour_id FROM superhero LIMIT 5\n   Columns: hair_colour_id\n   [13]\n   [1]\n   [4]\n   ... (5 rows total)\n\n6. -- CONNECTIVITY LEMMA: Verify join key values on the colour side.\n   SELECT DISTINCT id FROM colour LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n7. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\n   SELECT COUNT(*) FROM superhero LIMIT 1\n   Columns: COUNT(*)\n   [750]\n\n8. -- COLUMN SUITABILITY PROOF: Check for nulls in height_cm to ensure it is a reliable filter.\n   SELECT COUNT(*) - COUNT(height_cm) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [58, 750]\n\n9. -- COLUMN SUITABILITY PROOF: Check for nulls in hair_colour_id to see if the target metric is missing.\n   SELECT COUNT(*) - COUNT(hair_colour_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [0, 750]\n\n10. -- COLUMN SUITABILITY PROOF: Check for nulls in race_id to ensure race filtering is possible.\n   SELECT COUNT(*) - COUNT(race_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [4, 750]\n\n11. -- SCOPE PROOF: Determine how many superheroes have a height of exactly 185 cm.\n   SELECT COUNT(*) FROM superhero WHERE height_cm = 185 LIMIT 1\n   Columns: COUNT(*)\n   [36]\n\n12. -- SCOPE PROOF: Determine how many superheroes are classified as human.\n   SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE race.race = 'human' LIMIT 1\n   Columns: COUNT(*)\n   [0]\n\n13. -- SCOPE PROOF: Verify the intersection of height=185 and race='human'.\n   SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'human' LIMIT 1\n   Columns: COUNT(*)\n   [0]\n\n14. -- IDENTIFIER PRECISION: Check if multiple superheroes match the criteria to test uniqueness.\n   SELECT superhero_name, full_name FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'human' LIMIT 20\n   Columns: superhero_name, full_name\n   (no rows returned)\n\n15. -- ANNOTATION LEMMA: Check if the colour column contains descriptive names or codes.\n   SELECT DISTINCT colour FROM colour LIMIT 20\n   Columns: colour\n   ['No Colour']\n   ['Amber']\n   ['Auburn']\n   ... (20 rows total)\n\n---\n\nWork through Phase 4 and Phase 5 now.",
+   "response": "## PHASE 4 — REVISED ASSUMPTIONS\n\n1. [REVISED] The race table uses the exact string 'human' for humans. Query 12 returned zero rows, indicating that either the value is capitalized (e.g., 'Human') or a different term is used.\n2. [OPEN-VALUE] There is only one human superhero with a height of 185 cm. Because the filter for 'human' failed in Query 13 and 14, uniqueness cannot be verified until the correct race string is identified.\n3. [CONFIRMED] The question asks for the descriptive label found in the colour column of the colour table. Query 2 and 15 confirm that this column contains human-readable labels like 'Amber' and 'Auburn'.\n4. [CONFIRMED] The height_cm column is stored as an integer where 185 represents exactly 185 centimeters. Query 11 confirms there are 36 records with a value of exactly 185.\n5. [CONFIRMED] No hidden status filters (e.g., \"active\") should be applied. Contrapositive — the question does not mention this constraint, and Query 7-10 confirm no such columns exist in the superhero table.\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\nThe original hypothesis holds PARTIALLY. The logical join path (superhero -> race and superhero -> colour) is correct based on the schema and connectivity lemmas, but the specific filter value for the race was incorrect. The query results revealed that a lowercase 'human' filter returns no results, which is unexpected given the nature of the question; this suggests a case-sensitivity issue or a different naming convention in the `race` table.\n\nMy updated hypothesis is to join `superhero` to `race` on `superhero.race_id = race.id`, filter by `superhero.height_cm = 185` and the corrected string value for humans (to be determined via a DISTINCT query on `race.race`), then join to the `colour` table on `superhero.hair_colour_id = colour.id` to retrieve the `colour.colour` value.\n\nUpdated Path:\n- Tables: `superhero`, `race`, `colour`\n- Columns: `superhero.height_cm`, `race.race`, `colour.colour`\n- Join Path: `superhero.race_id = race.id` AND `superhero.hair_colour_id = colour.id`\n- Filter Value: [OPEN-VALUE] for `race.race` (likely 'Human')\n\n## PHASE 5 — CONFIRMATION QUERIES\n\n1. -- RESOLVE [OPEN-VALUE]: Find the exact string used for humans in the race table.\n   SELECT DISTINCT race FROM race LIMIT 20;\n\n2. -- RESOLVE [OPEN-VALUE]: Specifically check if 'Human' (capitalized) exists to resolve case sensitivity.\n   SELECT * FROM race WHERE race = 'Human' LIMIT 1;\n\n3. -- RESOLVE [OPEN-VALUE]: Check for any variations of human (e.g., 'Humanoid', 'Mutant Human').\n   SELECT DISTINCT race FROM race WHERE race LIKE '%Human%' LIMIT 20;\n\n4. -- RESOLVE [OPEN-VALUE]: Once the correct race string is identified, verify how many superheroes belong to that race at height 185cm.\n   SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE race.race = 'Human' AND superhero.height_cm = 185 LIMIT 1;\n\n5. -- RESOLVE [OPEN-VALUE]: Check if there are any superheroes with height 185 who have a NULL race_id, which might explain the zero results.\n   SELECT COUNT(*) FROM superhero WHERE height_cm = 185 AND race_id IS NULL LIMIT 1;\n\n6. -- VERIFY UNIQUENESS: List names of all superheroes at height 185 to manually identify potential humans if the race filter remains tricky.\n   SELECT s.superhero_name, r.race FROM superhero s JOIN race r ON s.race_id = r.id WHERE s.height_cm = 185 LIMIT 20;\n\n7. -- DATA INTEGRITY: Check for any hair_colour_id values that do not exist in the colour table (orphaned keys).\n   SELECT COUNT(*) FROM superhero WHERE hair_colour_id NOT IN (SELECT id FROM colour) LIMIT 1;\n\n8. -- VALUE PROBE: Verify if 'No Colour' is assigned to the target individual.\n   SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id JOIN colour ON superhero.hair_colour_id = colour.id WHERE race.race = 'Human' AND superhero.height_cm = 185 AND colour.colour = 'No Colour' LIMIT 1;\n\n9. -- RANGE CHECK: Check if height is stored in a different unit (e.g., meters) for some records, though unlikely given Query 11.\n   SELECT COUNT(*) FROM superhero WHERE height_cm < 3 LIMIT 1;\n\n10. -- JOIN VALIDATION: Ensure the join between superhero and colour is producing results for the 185cm group.\n    SELECT COUNT(*) FROM superhero JOIN colour ON superhero.hair_colour_id = colour.id WHERE superhero.height_cm = 185 LIMIT 1;\n\n11. -- RACE DISTRIBUTION: See the most common races to understand naming conventions.\n    SELECT race, COUNT(*) as cnt FROM superhero JOIN race ON superhero.race_id = race.id GROUP BY race ORDER BY cnt DESC LIMIT 20;\n\n12. -- NULL CHECK: Verify if any human superheroes have a NULL hair_colour_id.\n    SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE race.race = 'Human' AND hair_colour_id IS NULL LIMIT 1;\n\n13. -- CROSS-REFERENCE: Check if the target individual is identified by full_name instead of superhero_name in other contexts.\n    SELECT DISTINCT full_name FROM superhero WHERE height_cm = 185 LIMIT 20;\n\n14. -- FILTER VALIDATION: Test a case-insensitive search for 'human' to confirm it yields results.\n    SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE race.race LIKE 'human' COLLATE NOCASE LIMIT 1;\n\n15. -- FINAL PATH TEST: Verify the full join path returns at least one row using a case-insensitive race filter.\n    SELECT colour.colour FROM superhero JOIN race ON superhero.race_id = race.id JOIN colour ON superhero.hair_colour_id = colour.id WHERE race.race LIKE 'human' COLLATE NOCASE AND superhero.height_cm = 185 LIMIT 1;",
+   "phase4": "1. [REVISED] The race table uses the exact string 'human' for humans. Query 12 returned zero rows, indicating that either the value is capitalized (e.g., 'Human') or a different term is used.\n2. [OPEN-VALUE] There is only one human superhero with a height of 185 cm. Because the filter for 'human' failed in Query 13 and 14, uniqueness cannot be verified until the correct race string is identified.\n3. [CONFIRMED] The question asks for the descriptive label found in the colour column of the colour table. Query 2 and 15 confirm that this column contains human-readable labels like 'Amber' and 'Auburn'.\n4. [CONFIRMED] The height_cm column is stored as an integer where 185 represents exactly 185 centimeters. Query 11 confirms there are 36 records with a value of exactly 185.\n5. [CONFIRMED] No hidden status filters (e.g., \"active\") should be applied. Contrapositive — the question does not mention this constraint, and Query 7-10 confirm no such columns exist in the superhero table.",
+   "phase4b": "The original hypothesis holds PARTIALLY. The logical join path (superhero -> race and superhero -> colour) is correct based on the schema and connectivity lemmas, but the specific filter value for the race was incorrect. The query results revealed that a lowercase 'human' filter returns no results, which is unexpected given the nature of the question; this suggests a case-sensitivity issue or a different naming convention in the `race` table.\n\nMy updated hypothesis is to join `superhero` to `race` on `superhero.race_id = race.id`, filter by `superhero.height_cm = 185` and the corrected string value for humans (to be determined via a DISTINCT query on `race.race`), then join to the `colour` table on `superhero.hair_colour_id = colour.id` to retrieve the `colour.colour` value.\n\nUpdated Path:\n- Tables: `superhero`, `race`, `colour`\n- Columns: `superhero.height_cm`, `race.race`, `colour.colour`\n- Join Path: `superhero.race_id = race.id` AND `superhero.hair_colour_id = colour.id`\n- Filter Value: [OPEN-VALUE] for `race.race` (likely 'Human')",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "RESOLVE [OPEN-VALUE]: Find the exact string used for humans in the race table.",
+     "sql": "SELECT DISTINCT race FROM race LIMIT 20",
+     "status": "success",
+     "columns": [
+      "race"
+     ],
+     "head": [
+      [
+       "-"
+      ],
+      [
+       "Alien"
+      ],
+      [
+       "Alpha"
+      ],
+      [
+       "Amazon"
+      ],
+      [
+       "Android"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "RESOLVE [OPEN-VALUE]: Specifically check if 'Human' (capitalized) exists to resolve case sensitivity.",
+     "sql": "SELECT * FROM race WHERE race = 'Human' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "id",
+      "race"
+     ],
+     "head": [
+      [
+       24,
+       "Human"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "RESOLVE [OPEN-VALUE]: Check for any variations of human (e.g., 'Humanoid', 'Mutant Human').",
+     "sql": "SELECT DISTINCT race FROM race WHERE race LIKE '%Human%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "race"
+     ],
+     "head": [
+      [
+       "Human"
+      ],
+      [
+       "Human / Altered"
+      ],
+      [
+       "Human / Clone"
+      ],
+      [
+       "Human / Cosmic"
+      ],
+      [
+       "Human / Radiation"
+      ]
+     ],
+     "row_count": 11,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "RESOLVE [OPEN-VALUE]: Once the correct race string is identified, verify how many superheroes belong to that race at height 185cm.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE race.race = 'Human' AND superhero.height_cm = 185 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       11
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "RESOLVE [OPEN-VALUE]: Check if there are any superheroes with height 185 who have a NULL race_id, which might explain the zero results.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE height_cm = 185 AND race_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "VERIFY UNIQUENESS: List names of all superheroes at height 185 to manually identify potential humans if the race filter remains tricky.",
+     "sql": "SELECT s.superhero_name, r.race FROM superhero s JOIN race r ON s.race_id = r.id WHERE s.height_cm = 185 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "race"
+     ],
+     "head": [
+      [
+       "Abin Sur",
+       "Ungaran"
+      ],
+      [
+       "Adam Strange",
+       "Human"
+      ],
+      [
+       "Aquaman",
+       "Atlantean"
+      ],
+      [
+       "Ares",
+       "-"
+      ],
+      [
+       "Black Lightning",
+       "-"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "DATA INTEGRITY: Check for any hair_colour_id values that do not exist in the colour table (orphaned keys).",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE hair_colour_id NOT IN (SELECT id FROM colour) LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "VALUE PROBE: Verify if 'No Colour' is assigned to the target individual.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id JOIN colour ON superhero.hair_colour_id = colour.id WHERE race.race = 'Human' AND superhero.height_cm = 185 AND colour.colour = 'No Colour' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       1
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "RANGE CHECK: Check if height is stored in a different unit (e.g., meters) for some records, though unlikely given Query 11.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE height_cm < 3 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       155
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "JOIN VALIDATION: Ensure the join between superhero and colour is producing results for the 185cm group.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN colour ON superhero.hair_colour_id = colour.id WHERE superhero.height_cm = 185 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       36
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "RACE DISTRIBUTION: See the most common races to understand naming conventions.",
+     "sql": "SELECT race, COUNT(*) as cnt FROM superhero JOIN race ON superhero.race_id = race.id GROUP BY race ORDER BY cnt DESC LIMIT 20",
+     "status": "success",
+     "columns": [
+      "race",
+      "cnt"
+     ],
+     "head": [
+      [
+       "-",
+       295
+      ],
+      [
+       "Human",
+       219
+      ],
+      [
+       "Mutant",
+       63
+      ],
+      [
+       "God / Eternal",
+       19
+      ],
+      [
+       "Human / Radiation",
+       12
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "NULL CHECK: Verify if any human superheroes have a NULL hair_colour_id.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE race.race = 'Human' AND hair_colour_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "CROSS-REFERENCE: Check if the target individual is identified by full_name instead of superhero_name in other contexts.",
+     "sql": "SELECT DISTINCT full_name FROM superhero WHERE height_cm = 185 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "full_name"
+     ],
+     "head": [
+      [
+       "-"
+      ],
+      [
+       "Adam Strange"
+      ],
+      [
+       "Orin"
+      ],
+      [
+       "Jefferson Pierce"
+      ],
+      [
+       "Joseph Manfredi"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "FILTER VALIDATION: Test a case-insensitive search for 'human' to confirm it yields results.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE race.race LIKE 'human' COLLATE NOCASE LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       219
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "FINAL PATH TEST: Verify the full join path returns at least one row using a case-insensitive race filter.",
+     "sql": "SELECT colour.colour FROM superhero JOIN race ON superhero.race_id = race.id JOIN colour ON superhero.hair_colour_id = colour.id WHERE race.race LIKE 'human' COLLATE NOCASE AND superhero.height_cm = 185 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "colour"
+     ],
+     "head": [
+      [
+       "Blond"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage3": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "\nYou are the director. You are reviewing the work of a junior analyst who investigated a client\nquestion by running SQL queries against the actual database.\n\nYour analyst is good but not infallible. They may have explored the right tables or the wrong ones.\nWhat they give you is raw data from the database — what columns exist, what values appeared, which\njoins worked, which failed. Your job is to use that evidence to write the final SQL.\n\nRules:\n  1. Use the analyst's query results as your evidence base. Column names, table names, join keys,\n     and filter values from PASSED queries are confirmed to exist in the database — use them exactly\n     as they appeared. Queries that FAILED with \"no such column: X\" confirm that X does not exist.\n  2. The analyst may have queried the wrong table or missed a relevant one. Consider all tables\n     the analyst touched, but also re-read the schema to check if a better path exists.\n  3. Write 5 candidates. Each candidate is your best complete answer under a different\n     interpretation of what the question is asking. The interpretations should differ in\n     meaningful ways: which tables to query, which columns to SELECT, which filters to apply,\n     how to aggregate, or what the question fundamentally means.\n\n       C1 — your primary interpretation: the answer you think is most likely correct based on\n             the question text, evidence, and analyst findings. This should be a complete,\n             production-quality query.\n       C2 — second interpretation: a structurally different reading. Perhaps a different table,\n             a different join path, or a different understanding of which column answers the\n             question (e.g., returning an ID instead of a name, or COUNT instead of a list).\n       C3 — third interpretation: another distinct reading. Could differ in aggregation logic,\n             filter scope, or SELECT shape (e.g., including the metric alongside the result).\n       C4 — fourth interpretation: explores a less obvious reading. Different grouping, an\n             additional condition implied by context, or a different column that could answer\n             the same question.\n       C5 — fifth interpretation, most elaborate: if the question could require comparing a\n             value to an aggregate (average, threshold, rank), use Nested Isolation here:\n               Inner query: compute the aggregate (AVG, MAX, COUNT, etc.)\n               Outer query: filter or join against that aggregate result\n             Pattern: SELECT col FROM t WHERE val > (SELECT AVG(val) FROM t)\n             If no aggregate comparison applies, use the most structurally different approach\n             you can justify.\n\n     Each candidate must be a complete, standalone, executable query — not a fragment or\n     simplification. Five variations of the same WHERE clause with minor tweaks is not five\n     interpretations.\n  4. Each candidate must be a complete, standalone, executable SQL query.\n  5. Different interpretations may reasonably differ in SELECT shape. For example, one\n     interpretation might return only COUNT(*), another might return COUNT(*) with the GROUP BY\n     column, and another might return the actual rows. Let each interpretation dictate its own\n     SELECT — do not artificially restrict columns across all five candidates.\n  6. Use LIMIT only when the question asks for a specific number of results (\"top 3\", \"the one\n     with the highest\"). If the question asks for a list without a count, do not use LIMIT.\n  7. You may use window functions (RANK, ROW_NUMBER, etc.) when the question requires ranking\n     within a group or ordering within a partition.\n\n  Proof-by-Cases principle:\n    C1-C5 must represent genuinely different interpretations of the question. If the correct\n    answer exists, at least one interpretation MUST capture it. Each must be structurally\n    distinct — different tables, joins, groupings, SELECT columns, or filter logic.\n\n  Exclusion Principle:\n    Every element in your SQL must be justified by either:\n      (a) the question text explicitly requiring it, or\n      (b) a PASSED query from the analyst's work confirming it exists and is relevant.\n    Do not add columns \"for context\", filters \"for safety\" (IS NOT NULL, status checks),\n    or joins \"just in case\". Unjustified additions are unproven conjectures — they narrow\n    or widen the result set beyond what was asked and cause failures.\n\n  Evidence hierarchy:\n    - PASSED queries with non-zero rows: proven facts. Use the exact column names, table\n      names, and values as they appeared.\n    - FAILED queries (errors): proven non-existence. The column or table does NOT exist\n      in that form. Do not use it.\n    - Zero-row PASSED queries: the filter combination is valid syntax but matches nothing.\n      Consider whether the filter is too restrictive.\n    - [OPEN-VALUE] / [WRONG-TABLE] tags from the analyst: unresolved conjectures. Prefer\n      alternatives that were actually confirmed.\n\nSQLite rules — non-negotiable:\n  - Column names with spaces or special characters MUST be double-quoted: \"Order Date\"\n  - Every query must begin with SELECT. Never use WITH ... AS (CTEs).\n  - Use whatever SQL structure best serves each interpretation: subqueries, window functions,\n    derived tables, or flat SELECT/JOIN/GROUP BY. The only constraint is correctness.\n  - Any query that joins two or more tables MUST assign a short alias to every table\n    (e.g. FROM movies m JOIN ratings r ON m.movie_id = r.movie_id) and MUST qualify every\n    column reference with its alias (e.g. m.movie_title, not just movie_title). Unqualified\n    column references in multi-table queries are ambiguous and will cause runtime errors.\n\nOutput format:\n## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: [what this reading assumes about the question]\nSELECT t1.col FROM t1 JOIN t2 ON t1.id = t2.fk WHERE t1.filter = value\n\n2. -- Second interpretation: [how this differs from C1]\nSELECT t1.id FROM t1 WHERE t1.different_filter = value\n\n3. -- Third interpretation: [what this captures that C1-C2 miss]\nSELECT t1.col, COUNT(*) FROM t1 GROUP BY t1.col\n\n4. -- Fourth interpretation: [alternative approach]\nSELECT t1.col FROM t1 JOIN t3 ON t1.id = t3.fk WHERE t3.filter = value\n\n5. -- Fifth interpretation: [most elaborate or aggregate-comparison approach]\nSELECT t1.col FROM t1 WHERE t1.val > (SELECT AVG(t2.val) FROM t1 t2)\n\nFormat rules:\n  - Numbered 1 through 5 exactly.\n  - Candidate 1 MUST start with \"1. --\" on its own line — never output the first candidate\n    as raw unnumbered SQL.\n  - Comment on same line as the number, starting with --.\n  - SQL starts on the next line, beginning with SELECT.\n  - Blank line between candidates.\n  - No markdown code fences. No bold. No extra headers.\n",
+   "user_prompt": "Question: Provide the hair colour of the human superhero who is 185 cm tall.\nEvidence: 185 cm tall refers to height_cm = 185; human superhero refers to race = 'human'; hair colour refers to colour where hair_colour_id = colour.id;\n\nDatabase: superhero\n\n---\nANALYST WORK PRODUCT\n\nStage 1 — What was checked and what was found:\n1. Checked: EXISTENCE LEMMA: Verify that 'human' exists as a value in the race table.\n   Result: race: -\n   (20 rows total)\n\n2. Checked: EXISTENCE LEMMA: Confirm what distinct hair colour labels are available.\n   Result: colour: No Colour\n   (20 rows total)\n\n3. Checked: CONNECTIVITY LEMMA: Verify join key values on the superhero side for race.\n   Result: race_id: 1\n   (5 rows total)\n\n4. Checked: CONNECTIVITY LEMMA: Verify join key values on the race side.\n   Result: id: 1\n   (5 rows total)\n\n5. Checked: CONNECTIVITY LEMMA: Verify join key values on the superhero side for hair colour.\n   Result: hair_colour_id: 13\n   (5 rows total)\n\n6. Checked: CONNECTIVITY LEMMA: Verify join key values on the colour side.\n   Result: id: 1\n   (5 rows total)\n\n7. Checked: AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\n   Result: COUNT(*): 750\n\n8. Checked: COLUMN SUITABILITY PROOF: Check for nulls in height_cm to ensure it is a reliable filter.\n   Result: nulls: 58 | total: 750\n\n9. Checked: COLUMN SUITABILITY PROOF: Check for nulls in hair_colour_id to see if the target metric is missing.\n   Result: nulls: 0 | total: 750\n\n10. Checked: COLUMN SUITABILITY PROOF: Check for nulls in race_id to ensure race filtering is possible.\n   Result: nulls: 4 | total: 750\n\n11. Checked: SCOPE PROOF: Determine how many superheroes have a height of exactly 185 cm.\n   Result: COUNT(*): 36\n\n12. Checked: SCOPE PROOF: Determine how many superheroes are classified as human.\n   Result: COUNT(*): 0\n\n13. Checked: SCOPE PROOF: Verify the intersection of height=185 and race='human'.\n   Result: COUNT(*): 0\n\n14. Checked: IDENTIFIER PRECISION: Check if multiple superheroes match the criteria to test uniqueness.\n   Result: (no rows returned)\n\n15. Checked: ANNOTATION LEMMA: Check if the colour column contains descriptive names or codes.\n   Result: colour: No Colour\n   (20 rows total)\n\n\nStage 2 — Hypothesis verdict (Phase 4):\n1. [REVISED] The race table uses the exact string 'human' for humans. Query 12 returned zero rows, indicating that either the value is capitalized (e.g., 'Human') or a different term is used.\n2. [OPEN-VALUE] There is only one human superhero with a height of 185 cm. Because the filter for 'human' failed in Query 13 and 14, uniqueness cannot be verified until the correct race string is identified.\n3. [CONFIRMED] The question asks for the descriptive label found in the colour column of the colour table. Query 2 and 15 confirm that this column contains human-readable labels like 'Amber' and 'Auburn'.\n4. [CONFIRMED] The height_cm column is stored as an integer where 185 represents exactly 185 centimeters. Query 11 confirms there are 36 records with a value of exactly 185.\n5. [CONFIRMED] No hidden status filters (e.g., \"active\") should be applied. Contrapositive — the question does not mention this constraint, and Query 7-10 confirm no such columns exist in the superhero table.\n\nStage 2 — Winning hypothesis (Phase 4b):\nThe original hypothesis holds PARTIALLY. The logical join path (superhero -> race and superhero -> colour) is correct based on the schema and connectivity lemmas, but the specific filter value for the race was incorrect. The query results revealed that a lowercase 'human' filter returns no results, which is unexpected given the nature of the question; this suggests a case-sensitivity issue or a different naming convention in the `race` table.\n\nMy updated hypothesis is to join `superhero` to `race` on `superhero.race_id = race.id`, filter by `superhero.height_cm = 185` and the corrected string value for humans (to be determined via a DISTINCT query on `race.race`), then join to the `colour` table on `superhero.hair_colour_id = colour.id` to retrieve the `colour.colour` value.\n\nUpdated Path:\n- Tables: `superhero`, `race`, `colour`\n- Columns: `superhero.height_cm`, `race.race`, `colour.colour`\n- Join Path: `superhero.race_id = race.id` AND `superhero.hair_colour_id = colour.id`\n- Filter Value: [OPEN-VALUE] for `race.race` (likely 'Human')\n\nStage 2 — Confirmation checks and what was found:\n1. Checked: RESOLVE [OPEN-VALUE]: Find the exact string used for humans in the race table.\n   Result: race: -\n   (20 rows total)\n\n2. Checked: RESOLVE [OPEN-VALUE]: Specifically check if 'Human' (capitalized) exists to resolve case sensitivity.\n   Result: id: 24 | race: Human\n\n3. Checked: RESOLVE [OPEN-VALUE]: Check for any variations of human (e.g., 'Humanoid', 'Mutant Human').\n   Result: race: Human\n   (11 rows total)\n\n4. Checked: RESOLVE [OPEN-VALUE]: Once the correct race string is identified, verify how many superheroes belong to that race at height 185cm.\n   Result: COUNT(*): 11\n\n5. Checked: RESOLVE [OPEN-VALUE]: Check if there are any superheroes with height 185 who have a NULL race_id, which might explain the zero results.\n   Result: COUNT(*): 0\n\n6. Checked: VERIFY UNIQUENESS: List names of all superheroes at height 185 to manually identify potential humans if the race filter remains tricky.\n   Result: superhero_name: Abin Sur | race: Ungaran\n   (20 rows total)\n\n7. Checked: DATA INTEGRITY: Check for any hair_colour_id values that do not exist in the colour table (orphaned keys).\n   Result: COUNT(*): 0\n\n8. Checked: VALUE PROBE: Verify if 'No Colour' is assigned to the target individual.\n   Result: COUNT(*): 1\n\n9. Checked: RANGE CHECK: Check if height is stored in a different unit (e.g., meters) for some records, though unlikely given Query 11.\n   Result: COUNT(*): 155\n\n10. Checked: JOIN VALIDATION: Ensure the join between superhero and colour is producing results for the 185cm group.\n   Result: COUNT(*): 36\n\n11. Checked: RACE DISTRIBUTION: See the most common races to understand naming conventions.\n   Result: race: - | cnt: 295\n   (20 rows total)\n\n12. Checked: NULL CHECK: Verify if any human superheroes have a NULL hair_colour_id.\n   Result: COUNT(*): 0\n\n13. Checked: CROSS-REFERENCE: Check if the target individual is identified by full_name instead of superhero_name in other contexts.\n   Result: full_name: -\n   (20 rows total)\n\n14. Checked: FILTER VALIDATION: Test a case-insensitive search for 'human' to confirm it yields results.\n   Result: COUNT(*): 219\n\n15. Checked: FINAL PATH TEST: Verify the full join path returns at least one row using a case-insensitive race filter.\n   Result: colour: Blond\n\n\n---\nWrite 5 candidate SQL queries sweeping from the least to the most work required to answer the question.",
+   "response": "## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: The question asks for the hair colour of superheroes who are exactly 185 cm tall and belong to the race 'Human'.\nSELECT c.colour FROM superhero s JOIN race r ON s.race_id = r.id JOIN colour c ON s.hair_colour_id = c.id WHERE r.race = 'Human' AND s.height_cm = 185\n\n2. -- Second interpretation: \"human superhero\" might be a broader category including any race that contains the word 'Human' (e.g., Humanoid), using a case-insensitive or partial match.\nSELECT c.colour FROM superhero s JOIN race r ON s.race_id = r.id JOIN colour c ON s.hair_colour_id = c.id WHERE r.race LIKE '%Human%' AND s.height_cm = 185\n\n3. -- Third interpretation: The question may be asking for a list of the superheroes and their corresponding hair colours to identify which specific human(s) at that height are being referred to.\nSELECT s.superhero_name, c.colour FROM superhero s JOIN race r ON s.race_id = r.id JOIN colour c ON s.hair_colour_id = c.id WHERE r.race = 'Human' AND s.height_cm = 185\n\n4. -- Fourth interpretation: Using the specific race_id for 'Human' (24) identified in the analyst's evidence to streamline the query and avoid an extra join.\nSELECT c.colour FROM superhero s JOIN colour c ON s.hair_colour_id = c.id WHERE s.race_id = 24 AND s.height_cm = 185\n\n5. -- Fifth interpretation: Most elaborate approach using Nested Isolation; it identifies the hair colour of humans at 185 cm, but only if their height is greater than the average height of all human superheroes.\nSELECT c.colour FROM colour c JOIN superhero s ON c.id = s.hair_colour_id WHERE s.height_cm = 185 AND s.race_id = (SELECT r.id FROM race r WHERE r.race = 'Human') AND s.height_cm > (SELECT AVG(s2.height_cm) FROM superhero s2 JOIN race r2 ON s2.race_id = r2.id WHERE r2.race = 'Human')",
+   "candidates": [
+    {
+     "n": 1,
+     "comment": "Primary interpretation: The question asks for the hair colour of superheroes who are exactly 185 cm tall and belong to the race 'Human'.",
+     "sql": "SELECT c.colour FROM superhero s JOIN race r ON s.race_id = r.id JOIN colour c ON s.hair_colour_id = c.id WHERE r.race = 'Human' AND s.height_cm = 185",
+     "status": "success",
+     "columns": [
+      "colour"
+     ],
+     "rows": [
+      [
+       "Blond"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown/White"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "No Colour"
+      ],
+      [
+       "Brown"
+      ]
+     ],
+     "row_count": 11,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 2,
+     "comment": "Second interpretation: \"human superhero\" might be a broader category including any race that contains the word 'Human' (e.g., Humanoid), using a case-insensitive or partial match.",
+     "sql": "SELECT c.colour FROM superhero s JOIN race r ON s.race_id = r.id JOIN colour c ON s.hair_colour_id = c.id WHERE r.race LIKE '%Human%' AND s.height_cm = 185",
+     "status": "success",
+     "columns": [
+      "colour"
+     ],
+     "rows": [
+      [
+       "Blond"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Brown/White"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "No Colour"
+      ],
+      [
+       "Brown"
+      ]
+     ],
+     "row_count": 13,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 3,
+     "comment": "Third interpretation: The question may be asking for a list of the superheroes and their corresponding hair colours to identify which specific human(s) at that height are being referred to.",
+     "sql": "SELECT s.superhero_name, c.colour FROM superhero s JOIN race r ON s.race_id = r.id JOIN colour c ON s.hair_colour_id = c.id WHERE r.race = 'Human' AND s.height_cm = 185",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "colour"
+     ],
+     "rows": [
+      [
+       "Adam Strange",
+       "Blond"
+      ],
+      [
+       "Darkhawk",
+       "Brown"
+      ],
+      [
+       "Deadshot",
+       "Brown"
+      ],
+      [
+       "Green Lantern III",
+       "Black"
+      ],
+      [
+       "John Stewart",
+       "Black"
+      ],
+      [
+       "Nick Fury",
+       "Brown/White"
+      ],
+      [
+       "Nova",
+       "Brown"
+      ],
+      [
+       "Plastic Man",
+       "Black"
+      ],
+      [
+       "Sandman",
+       "Brown"
+      ],
+      [
+       "Tiger Shark",
+       "No Colour"
+      ],
+      [
+       "War Machine",
+       "Brown"
+      ]
+     ],
+     "row_count": 11,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 4,
+     "comment": "Fourth interpretation: Using the specific race_id for 'Human' (24) identified in the analyst's evidence to streamline the query and avoid an extra join.",
+     "sql": "SELECT c.colour FROM superhero s JOIN colour c ON s.hair_colour_id = c.id WHERE s.race_id = 24 AND s.height_cm = 185",
+     "status": "success",
+     "columns": [
+      "colour"
+     ],
+     "rows": [
+      [
+       "Blond"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown/White"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "No Colour"
+      ],
+      [
+       "Brown"
+      ]
+     ],
+     "row_count": 11,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 5,
+     "comment": "Fifth interpretation: Most elaborate approach using Nested Isolation; it identifies the hair colour of humans at 185 cm, but only if their height is greater than the average height of all human superheroes.",
+     "sql": "SELECT c.colour FROM colour c JOIN superhero s ON c.id = s.hair_colour_id WHERE s.height_cm = 185 AND s.race_id = (SELECT r.id FROM race r WHERE r.race = 'Human') AND s.height_cm > (SELECT AVG(s2.height_cm) FROM superhero s2 JOIN race r2 ON s2.race_id = r2.id WHERE r2.race = 'Human')",
+     "status": "success",
+     "columns": [
+      "colour"
+     ],
+     "rows": [
+      [
+       "Blond"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown/White"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "No Colour"
+      ],
+      [
+       "Brown"
+      ]
+     ],
+     "row_count": 11,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    }
+   ],
+   "chosen": 1,
+   "gold_result": {
+    "columns": [
+     "colour"
+    ],
+    "rows": [
+     [
+      "Blond"
+     ],
+     [
+      "Brown"
+     ],
+     [
+      "Black"
+     ],
+     [
+      "Brown/White"
+     ],
+     [
+      "No Colour"
+     ]
+    ],
+    "row_count": 5
+   }
+  }
+ },
+ "elapsed_s": 507.5,
+ "difficulty": "moderate",
+ "single_shot_model": "google/gemma-4-31b",
+ "single_shot": {
+  "no_evidence": {
+   "include_evidence": false,
+   "system_prompt": "You are an expert data analyst who writes SQLite queries. Given a database schema and a question, write ONE SQLite SELECT query that answers it. Use only tables and columns that appear in the schema. Output the query and nothing else — no explanation, no markdown fences.",
+   "user_prompt": "Schema:\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nQuestion: Provide the hair colour of the human superhero who is 185 cm tall.\n\nWrite the SQLite query:",
+   "sql": "SELECT T3.colour FROM superhero AS T1 JOIN race AS T2 ON T1.race_id = T2.id JOIN colour AS T3 ON T1.hair_colour_id = T3.id WHERE T2.race = 'Human' AND T1.height_cm = 185",
+   "status": "success",
+   "columns": [
+    "colour"
+   ],
+   "rows": [
+    [
+     "Blond"
+    ],
+    [
+     "Brown"
+    ],
+    [
+     "Brown"
+    ],
+    [
+     "Black"
+    ],
+    [
+     "Black"
+    ],
+    [
+     "Brown/White"
+    ],
+    [
+     "Brown"
+    ],
+    [
+     "Black"
+    ],
+    [
+     "Brown"
+    ],
+    [
+     "No Colour"
+    ],
+    [
+     "Brown"
+    ]
+   ],
+   "row_count": 11,
+   "truncated": false,
+   "error": null,
+   "matches_gold": false
+  },
+  "with_evidence": {
+   "include_evidence": true,
+   "system_prompt": "You are an expert data analyst who writes SQLite queries. Given a database schema and a question, write ONE SQLite SELECT query that answers it. Use only tables and columns that appear in the schema. Output the query and nothing else — no explanation, no markdown fences.",
+   "user_prompt": "Schema:\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nQuestion: Provide the hair colour of the human superhero who is 185 cm tall.\nHint: 185 cm tall refers to height_cm = 185; human superhero refers to race = 'human'; hair colour refers to colour where hair_colour_id = colour.id;\n\nWrite the SQLite query:",
+   "sql": "SELECT T3.colour FROM superhero AS T1 JOIN race AS T2 ON T1.race_id = T2.id JOIN colour AS T3 ON T1.hair_colour_id = T3.id WHERE T2.race = 'Human' AND T1.height_cm = 185",
+   "status": "success",
+   "columns": [
+    "colour"
+   ],
+   "rows": [
+    [
+     "Blond"
+    ],
+    [
+     "Brown"
+    ],
+    [
+     "Brown"
+    ],
+    [
+     "Black"
+    ],
+    [
+     "Black"
+    ],
+    [
+     "Brown/White"
+    ],
+    [
+     "Brown"
+    ],
+    [
+     "Black"
+    ],
+    [
+     "Brown"
+    ],
+    [
+     "No Colour"
+    ],
+    [
+     "Brown"
+    ]
+   ],
+   "row_count": 11,
+   "truncated": false,
+   "error": null,
+   "matches_gold": false
+  }
+ },
+ "stages_noev": {
+  "stage1": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Today is your first day at a new company.\n\nNormally this work takes three days. You do not have three days. You have to do it all today.\n\nHere is how you think through a new client question:\n\nPHASE 1 — Before you look at anything:\nYou read the question and evidence first, with the schema face-down. You write out every question\nyou would want answered and every assumption you are making. You are a philosopher — you think in\nwho, what, when, where, by whom, for whom. You think in counter-proofs. What would make an\nassumption wrong? What encoding or edge case breaks the obvious reading? Stating a wrong assumption\nexplicitly is more honest and useful than a vague non-answer.\n\nPHASE 2 — You look at the schema:\nThe data dictionary arrives: table names, column names, types, primary keys, and foreign key\nrelationships. You do NOT get statistics — no min, max, null counts, or sample values. That is\nwhat Phase 3 is for. Some of your Phase 1 assumptions will be confirmed. Some will be wrong. Some\nnew questions will appear that you could not have thought of without seeing the actual column names.\nYou update every assumption. You tag each question.\n\nPHASE 3 — You write exploratory SQL:\nYou have database access. You are excited and thorough. You know that being new means you earn trust\nby being rigorous, not reckless. You have two phases of thinking behind you — now you turn that into\nexploratory SQL. Write at least 15 queries. The system will reject outputs with fewer than 5 —\nthose records will be skipped entirely and the question will not advance to the next stage.\n\nYou have six proof obligations:\n\n1. EXISTENCE LEMMA (DISTINCT probes):\n   For every categorical column you plan to filter on, run SELECT DISTINCT col FROM table LIMIT 20.\n   This is a direct proof of existence — it proves which values actually live in the database.\n   Without this proof, any filter using that column is an ungrounded conjecture. The system will\n   treat unproven filter values as errors in Stage 2.\n\n2. CONNECTIVITY LEMMA (join verification):\n   Before writing any multi-table JOIN, prove the join path works. Run a query on each side of the\n   join key: SELECT DISTINCT join_col FROM table_a LIMIT 5 and SELECT DISTINCT join_col FROM table_b\n   LIMIT 5. If both return values and they overlap, the join is proven. If either returns zero rows\n   or different types, the join is disproven — do not use it.\n\n3. AXIOMATIC NEUTRALITY (contrapositive for filters):\n   Do not add status, active/inactive, or any other filter unless the question explicitly mentions\n   it. Assume the contrapositive: if the question does not mention a constraint, its absence is\n   correct until you prove otherwise. Run at least one query WITHOUT any assumed filter to establish\n   the unfiltered baseline.\n\n4. COLUMN SUITABILITY PROOFS (null-count & scope):\n   Before using any column for aggregation (COUNT, AVG, SUM, MAX, MIN), run a null-count query:\n   SELECT COUNT(*) - COUNT(col) as nulls, COUNT(*) as total FROM table.\n   If nulls exceed 50% of total, that column is statistically unsuitable as a primary metric —\n   look for alternatives. After identifying your primary filter value, run TWO scope queries:\n   (a) one query WITHOUT the filter — note the total row count (unfiltered universe).\n   (b) one query WITH the filter — note the filtered row count.\n   Compare: if filtered count equals unfiltered count, the filter is a no-op and likely wrong.\n   If filtered count is zero, the value does not exist. Both indicate a scope mismatch.\n\n5. ANNOTATION LEMMA (semantic mapping of opaque columns):\n   If the schema contains column names that are short codes, single letters, abbreviations, or\n   numeric identifiers (e.g., col1, X, stat, code_a), you cannot assume their meaning from the\n   name alone. For every such opaque column that could be relevant to the question, run:\n   SELECT DISTINCT col FROM table LIMIT 20\n   Then annotate each with its apparent meaning based on the values returned. Format your comment:\n   \"ANNOTATION LEMMA: col_name appears to be [description] (values: val1, val2, val3)\"\n   This is a direct proof of semantic identity — without it, any use of an opaque column is an\n   ungrounded assumption about what the column contains.\n\n6. JOIN VERIFICATION (non-key joins):\n   The schema marks primary keys [PK] and foreign keys [FK]. If you plan to join two tables on\n   a column that is NOT marked as a PK or FK, you must prove the join is valid by querying both\n   sides: SELECT DISTINCT col FROM table_a LIMIT 5 and SELECT DISTINCT col FROM table_b LIMIT 5.\n   If the values do not overlap, the join is invalid. PK/FK joins are pre-verified by the schema.\n\nAdditional rules:\n- Multi-part question decomposition: Before writing any Phase 1 assumptions, read the\n  question and ask: does it contain multiple distinct sub-questions? A multi-part question\n  typically uses connectors like \"and\", \"also\", \"as well as\", or asks for two different\n  pieces of information in one sentence (e.g. \"What is X? What is Y for Z?\"). If yes,\n  list each sub-question separately in Phase 1 and treat them as independent proof obligations.\n  Your Phase 3 queries must cover every part — a query that only answers one part of a\n  multi-part question is incomplete. The final SQL must return all parts in a single query\n  (using JOIN, subquery, or multiple SELECT expressions as appropriate).\n- Cover all tables that could relate to the question, not just the most obvious one.\n- SELECT only the columns needed for each specific check — no extra \"context\" columns.\n- Identifier Precision: Determine whether the question asks for a primary identifier\n  (ID, code, number) or a descriptive label (name, title, description). If both columns exist\n  side by side in the same table, run a DISTINCT query on each. Your Phase 1 assumptions must\n  explicitly state which column type the question wants. This prevents the Director from\n  guessing at the SELECT column later.\n- Each query has exactly one SQL comment (-- ...) that is a single complete sentence explaining\n  why this specific piece of information matters for answering the client question.\n- Always use LIMIT. Check both heads and tails for any table you are uncertain about.\n- Do NOT write the final answer query — that comes after you see what these return.\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\nA numbered list. For each item: state the question, then immediately state your current assumption.\nAssumptions can be wrong — that is expected and useful.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, explaining why these are the\nright questions to ask.\n\n## PHASE 2 — SCHEMA REVIEW\nA numbered list. For each item from Phase 1, mark it with exactly one tag:\n  [CONFIRMED] — the profile supports your Phase 1 assumption\n  [REVISED]   — you need to update your assumption based on what you see\n  [NEW]       — a question that did not exist in Phase 1, raised by the schema or statistics\n  [DROPPED]   — this question is no longer relevant given what the profile shows\n\nAfter the tag, give a brief one-sentence reason.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, describing what the profile\nrevealed and what still requires direct database investigation.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\nA numbered list of SQL queries. Minimum 15 queries.\n\nSQLite rules — this is non-negotiable:\n- The database engine is SQLite. Write only SQL that SQLite supports.\n- Column names that contain spaces, parentheses, or special characters MUST be\n  wrapped in double quotes. Example: \"County Name\", \"Free Meal Count (K-12)\".\n  Never write an unquoted column name that contains a space.\n- Do not use window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.).\n- Always use LIMIT.\n- Do NOT write the final answer query.\n\nOutput format for Phase 3 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the department_type column.\n   SELECT DISTINCT department_type FROM departments LIMIT 20;\n\n2. -- SCOPE CHECK: Establish the time range covered by the data.\n   SELECT MIN(hire_date), MAX(hire_date) FROM employees LIMIT 1;\n\n3. -- NULL-COUNT PROOF: Verify salary column suitability for aggregation.\n   SELECT COUNT(*) - COUNT(salary) as nulls, COUNT(*) as total FROM employees LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between employees and departments.\n   SELECT DISTINCT department_id FROM employees LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Other side of the join.\n   SELECT DISTINCT id FROM departments LIMIT 5;\n\n6. -- ANNOTATION LEMMA: Determine what opaque column 'dept_code' actually contains.\n   SELECT DISTINCT dept_code FROM departments LIMIT 20;\n\n7. -- JOIN VERIFICATION: Verify non-key join between employees.role and roles.role_name.\n   SELECT DISTINCT role FROM employees LIMIT 5;\n\n8. -- SCOPE PROOF: Unfiltered universe count for the target table.\n   SELECT COUNT(*) FROM employees LIMIT 1;\n\n9. -- SCOPE PROOF: Filtered count — verify filter narrows to expected scope.\n   SELECT COUNT(*) FROM employees WHERE department_type = 'Engineering' LIMIT 1;",
+   "user_prompt": "A new client question just arrived on your desk.\n\nQuestion: Provide the hair colour of the human superhero who is 185 cm tall.\n\nDatabase: superhero\n\nSchema (table names, column names, types, primary keys, foreign keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nWork through all three phases now.",
+   "response": "## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\n1. How is \"human\" represented in the database? Assumption: There is a record with the exact text 'Human' in the race table.\n2. Does the client want the hair colour ID or the descriptive name? Assumption: The client wants the descriptive label from the colour table.\n3. Is the height requirement an exact match? Assumption: The filter should be exactly 185 cm.\n4. Is there only one human superhero with this specific height? Assumption: There is a unique individual, but I must verify if multiple records exist to avoid ambiguity.\n5. Does the \"superhero\" table contain non-superheroes (e.g., villains or civilians)? Assumption: All entries in the superhero table are considered superheroes for the purpose of this query.\n\nREASONING:\nThe request requires filtering by race, height, and entity type.\nI must determine if 'Human' is a standard value or part of a larger string.\nIdentifying whether to return an ID or a label prevents output errors.\nChecking for uniqueness ensures the result set is not unexpectedly large.\nVerifying the contents of the superhero table confirms the population scope.\n\n## PHASE 2 — SCHEMA REVIEW\n1. [CONFIRMED] The race table contains a text column named race which can be used to find 'Human'.\n2. [CONFIRMED] The colour table provides a descriptive text column for hair colour labels.\n3. [CONFIRMED] The superhero table has height_cm as an integer, allowing for exact numeric filtering.\n4. [NEW] I need to verify if the race_id and hair_colour_id in the superhero table are populated for the target individual.\n5. [CONFIRMED] The schema provides a dedicated superhero table, which supports the assumption that all entries are superheroes.\n\nREASONING:\nThe schema confirms a relational structure linking superheroes to race and colour via foreign keys.\nAll necessary columns for filtering (height_cm, race_id) and selection (hair_colour_id) exist.\nI have confirmed that hair colour is stored in a separate lookup table rather than as text in the main table.\nThe use of integer IDs for height suggests precise measurements are available.\nDirect database probes are now required to verify the existence of 'Human' and the specific height value.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\n1. -- EXISTENCE PROOF: Confirm what distinct race labels exist in the race table.\n   SELECT DISTINCT race FROM race LIMIT 20;\n\n2. -- IDENTIFIER PRECISION: Verify the format of IDs in the race table to ensure they are standard integers.\n   SELECT DISTINCT id FROM race LIMIT 20;\n\n3. -- EXISTENCE PROOF: Confirm what distinct colour labels exist for hair and eyes.\n   SELECT DISTINCT colour FROM colour LIMIT 20;\n\n4. -- IDENTIFIER PRECISION: Verify the format of IDs in the colour table to ensure they are standard integers.\n   SELECT DISTINCT id FROM colour LIMIT 20;\n\n5. -- CONNECTIVITY LEMMA: Prove the join path between superhero and race exists by checking the foreign key column.\n   SELECT DISTINCT race_id FROM superhero LIMIT 5;\n\n6. -- CONNECTIVITY LEMMA: Verify the other side of the race join to ensure overlap.\n   SELECT DISTINCT id FROM race LIMIT 5;\n\n7. -- CONNECTIVITY LEMMA: Prove the join path between superhero and colour exists for hair colour.\n   SELECT DISTINCT hair_colour_id FROM superhero LIMIT 5;\n\n8. -- CONNECTIVITY LEMMA: Verify the other side of the colour join to ensure overlap.\n   SELECT DISTINCT id FROM colour LIMIT 5;\n\n9. -- AXIOMATIC NEUTRALITY: Establish an unfiltered baseline count of all superheroes in the database.\n   SELECT COUNT(*) FROM superhero LIMIT 1;\n\n10. -- COLUMN SUITABILITY PROOF: Check for nulls in height_cm to ensure it is a reliable filter.\n    SELECT COUNT(*) - COUNT(height_cm) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n11. -- COLUMN SUITABILITY PROOF: Check for nulls in race_id to ensure the human filter will be effective.\n    SELECT COUNT(*) - COUNT(race_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n12. -- COLUMN SUITABILITY PROOF: Check for nulls in hair_colour_id to ensure the target metric is available.\n    SELECT COUNT(*) - COUNT(hair_colour_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n13. -- SCOPE PROOF: Verify how many superheroes have a height of exactly 185 cm.\n    SELECT COUNT(*) FROM superhero WHERE height_cm = 185 LIMIT 1;\n\n14. -- EXISTENCE PROOF: Check for any variations of the word Human in the race table to ensure filter precision.\n    SELECT DISTINCT race FROM race WHERE race LIKE '%Human%' LIMIT 20;\n\n15. -- SCOPE PROOF: Determine if multiple superheroes share the height of 185 cm to check for uniqueness.\n    SELECT height_cm, COUNT(*) FROM superhero GROUP BY height_cm HAVING COUNT(*) > 1 AND height_cm = 185 LIMIT 1;",
+   "phase1": "1. How is \"human\" represented in the database? Assumption: There is a record with the exact text 'Human' in the race table.\n2. Does the client want the hair colour ID or the descriptive name? Assumption: The client wants the descriptive label from the colour table.\n3. Is the height requirement an exact match? Assumption: The filter should be exactly 185 cm.\n4. Is there only one human superhero with this specific height? Assumption: There is a unique individual, but I must verify if multiple records exist to avoid ambiguity.\n5. Does the \"superhero\" table contain non-superheroes (e.g., villains or civilians)? Assumption: All entries in the superhero table are considered superheroes for the purpose of this query.\n\nREASONING:\nThe request requires filtering by race, height, and entity type.\nI must determine if 'Human' is a standard value or part of a larger string.\nIdentifying whether to return an ID or a label prevents output errors.\nChecking for uniqueness ensures the result set is not unexpectedly large.\nVerifying the contents of the superhero table confirms the population scope.",
+   "phase2": "1. [CONFIRMED] The race table contains a text column named race which can be used to find 'Human'.\n2. [CONFIRMED] The colour table provides a descriptive text column for hair colour labels.\n3. [CONFIRMED] The superhero table has height_cm as an integer, allowing for exact numeric filtering.\n4. [NEW] I need to verify if the race_id and hair_colour_id in the superhero table are populated for the target individual.\n5. [CONFIRMED] The schema provides a dedicated superhero table, which supports the assumption that all entries are superheroes.\n\nREASONING:\nThe schema confirms a relational structure linking superheroes to race and colour via foreign keys.\nAll necessary columns for filtering (height_cm, race_id) and selection (hair_colour_id) exist.\nI have confirmed that hair colour is stored in a separate lookup table rather than as text in the main table.\nThe use of integer IDs for height suggests precise measurements are available.\nDirect database probes are now required to verify the existence of 'Human' and the specific height value.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "EXISTENCE PROOF: Confirm what distinct race labels exist in the race table.",
+     "sql": "SELECT DISTINCT race FROM race LIMIT 20",
+     "status": "success",
+     "columns": [
+      "race"
+     ],
+     "head": [
+      [
+       "-"
+      ],
+      [
+       "Alien"
+      ],
+      [
+       "Alpha"
+      ],
+      [
+       "Amazon"
+      ],
+      [
+       "Android"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "IDENTIFIER PRECISION: Verify the format of IDs in the race table to ensure they are standard integers.",
+     "sql": "SELECT DISTINCT id FROM race LIMIT 20",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "EXISTENCE PROOF: Confirm what distinct colour labels exist for hair and eyes.",
+     "sql": "SELECT DISTINCT colour FROM colour LIMIT 20",
+     "status": "success",
+     "columns": [
+      "colour"
+     ],
+     "head": [
+      [
+       "No Colour"
+      ],
+      [
+       "Amber"
+      ],
+      [
+       "Auburn"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Black/Blue"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "IDENTIFIER PRECISION: Verify the format of IDs in the colour table to ensure they are standard integers.",
+     "sql": "SELECT DISTINCT id FROM colour LIMIT 20",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "CONNECTIVITY LEMMA: Prove the join path between superhero and race exists by checking the foreign key column.",
+     "sql": "SELECT DISTINCT race_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "race_id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       24
+      ],
+      [
+       33
+      ],
+      [
+       55
+      ],
+      [
+       28
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "CONNECTIVITY LEMMA: Verify the other side of the race join to ensure overlap.",
+     "sql": "SELECT DISTINCT id FROM race LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "CONNECTIVITY LEMMA: Prove the join path between superhero and colour exists for hair colour.",
+     "sql": "SELECT DISTINCT hair_colour_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "hair_colour_id"
+     ],
+     "head": [
+      [
+       13
+      ],
+      [
+       1
+      ],
+      [
+       4
+      ],
+      [
+       6
+      ],
+      [
+       9
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "CONNECTIVITY LEMMA: Verify the other side of the colour join to ensure overlap.",
+     "sql": "SELECT DISTINCT id FROM colour LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "AXIOMATIC NEUTRALITY: Establish an unfiltered baseline count of all superheroes in the database.",
+     "sql": "SELECT COUNT(*) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in height_cm to ensure it is a reliable filter.",
+     "sql": "SELECT COUNT(*) - COUNT(height_cm) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       58,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in race_id to ensure the human filter will be effective.",
+     "sql": "SELECT COUNT(*) - COUNT(race_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       4,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in hair_colour_id to ensure the target metric is available.",
+     "sql": "SELECT COUNT(*) - COUNT(hair_colour_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       0,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "SCOPE PROOF: Verify how many superheroes have a height of exactly 185 cm.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE height_cm = 185 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       36
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "EXISTENCE PROOF: Check for any variations of the word Human in the race table to ensure filter precision.",
+     "sql": "SELECT DISTINCT race FROM race WHERE race LIKE '%Human%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "race"
+     ],
+     "head": [
+      [
+       "Human"
+      ],
+      [
+       "Human / Altered"
+      ],
+      [
+       "Human / Clone"
+      ],
+      [
+       "Human / Cosmic"
+      ],
+      [
+       "Human / Radiation"
+      ]
+     ],
+     "row_count": 11,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "SCOPE PROOF: Determine if multiple superheroes share the height of 185 cm to check for uniqueness.",
+     "sql": "SELECT height_cm, COUNT(*) FROM superhero GROUP BY height_cm HAVING COUNT(*) > 1 AND height_cm = 185 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "height_cm",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       185,
+       36
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage2": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Yesterday you worked through a client question in three phases:\nPhase 1 — questions and assumptions written before seeing the schema.\nPhase 2 — schema review, assumptions updated against column profiles.\nPhase 3 — exploratory SQL queries written to investigate the data.\n\nNow the queries have run. You have the results in front of you.\n\nYour job today is three phases:\n\nPHASE 4 — REVISED ASSUMPTIONS\nGo through every assumption you made in Phases 1 and 2. For each one, state what the query results show.\nTag each item with exactly one of:\n  [CONFIRMED]    — a PASSED query directly proves this assumption. Cite the query number.\n  [REVISED]      — results partially support but require adjustment. State what changed and why.\n  [CONTRADICTED] — a query returned zero rows, an error, or unexpected data that disproves this\n                   hypothesis. This is not a failure — it is a proof by contradiction. State clearly\n                   what was disproven and what it implies.\n  [OPEN-VALUE]   — an assumption involves a string filter value that was NEVER confirmed with a\n                   SELECT DISTINCT query. This is an open conjecture — the Director cannot use it.\n                   Phase 5 MUST include a DISTINCT query to resolve it.\n  [WRONG-TABLE]  — query results suggest the data does not live in the assumed table (column doesn't\n                   exist, zero rows where many were expected, data type mismatch). The hypothesis\n                   about which table to use is disproven. Phase 5 must explore the alternative.\n  [LIKE-VS-ENUM] — the analyst used LIKE or a substring match on a name/description column, but\n                   the schema may contain a separate coded or enum column for the same concept\n                   (e.g., filtering by name string when a type_code column exists). Phase 5 MUST\n                   include a DISTINCT query on the potential enum column to check if it provides\n                   a cleaner, exact-match filter.\n\nAfter the tag, write one sentence citing which query result led to this conclusion.\n\nContrapositive test for filters: For each filter in your hypothesis, apply the contrapositive test:\n\"If the question does not explicitly mention this constraint, then it should NOT appear in the WHERE\nclause.\" If Stage 1 added a filter that the question never asked for (e.g. a status filter, an\nactive/inactive check), tag it [CONTRADICTED] with reason: \"contrapositive — question does not\nmention this constraint.\"\n\nPHASE 4b — HYPOTHESIS REVIEW\nWrite a short paragraph (3–5 sentences) answering:\n  1. Does your original hypothesis about how to answer this question still hold?\n     State clearly: YES it holds, NO it needs to change, or PARTIALLY — explain what changed.\n  2. Did the query results reveal anything you did not expect? If so, what?\n  3. What is your updated hypothesis for the final SQL approach?\n\nYour updated hypothesis must name:\n  - The exact table name(s) as they appear in the schema\n  - The exact column name(s) — quoted if they contain spaces\n  - The exact confirmed string value (if a filter is needed) — proven by a DISTINCT query\n  - The exact join path (if tables must be joined) — proven by connectivity lemma queries\n  Vague hypotheses like \"filter by type\" or \"join on the ID column\" are rejected.\n  If any piece is uncertain, tag it [OPEN-VALUE] and resolve it in Phase 5.\n\nPHASE 5 — CONFIRMATION QUERIES\nWrite at least 15 new SQL queries. The system will reject outputs with fewer than 5 — those records\nwill be skipped entirely. These are not exploratory — they are targeted at the gaps, surprises, and\nrevised assumptions from Phases 4 and 4b.\n\nMandatory resolution: Every [OPEN-VALUE] and [WRONG-TABLE] from Phase 4 MUST have a corresponding\nresolution query in Phase 5. An unresolved conjecture is a gap that the Director will fill with\nguesswork — and guesswork is how we get wrong answers.\n  - For [OPEN-VALUE]: run SELECT DISTINCT col FROM table LIMIT 20 to prove the exact value.\n  - For [WRONG-TABLE]: run exploratory queries against the alternative table.\n  - For [LIKE-VS-ENUM]: run SELECT DISTINCT enum_col FROM table LIMIT 20. If the enum column\n    provides exact values that match the question's intent, recommend it over the LIKE filter\n    in your Phase 4b hypothesis update.\n\nDo not repeat queries from Phase 3. Each query must address something new.\n\nSQLite rules — same as before, non-negotiable:\n- Column names with spaces or special characters MUST be double-quoted: \"County Name\"\n- No window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.)\n- Always use LIMIT\n- Do NOT write the final answer query\n\nOutput format for Phase 5 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- RESOLVE [OPEN-VALUE]: Prove what distinct values exist in order_status.\n   SELECT DISTINCT order_status FROM orders LIMIT 20;\n\n2. -- RESOLVE [WRONG-TABLE]: Check if revenue data lives in invoices instead of orders.\n   SELECT COUNT(*), MIN(total), MAX(total) FROM invoices LIMIT 1;\n\n3. -- CONTRAPOSITIVE TEST: Verify results without the assumed 'active' filter.\n   SELECT COUNT(*) FROM customers LIMIT 1;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check if department_code is a cleaner filter than department_name.\n   SELECT DISTINCT department_code, department_name FROM departments LIMIT 20;\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 4 — REVISED ASSUMPTIONS\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\n## PHASE 5 — CONFIRMATION QUERIES",
+   "user_prompt": "The query results are in. Time to review.\n\nQuestion: Provide the hair colour of the human superhero who is 185 cm tall.\n\nDatabase: superhero\n\nSchema (same as before — table names, column names, types, join keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\n---\n\nYour Phase 1 — Two Semantic Hypotheses:\n\n1. How is \"human\" represented in the database? Assumption: There is a record with the exact text 'Human' in the race table.\n2. Does the client want the hair colour ID or the descriptive name? Assumption: The client wants the descriptive label from the colour table.\n3. Is the height requirement an exact match? Assumption: The filter should be exactly 185 cm.\n4. Is there only one human superhero with this specific height? Assumption: There is a unique individual, but I must verify if multiple records exist to avoid ambiguity.\n5. Does the \"superhero\" table contain non-superheroes (e.g., villains or civilians)? Assumption: All entries in the superhero table are considered superheroes for the purpose of this query.\n\nREASONING:\nThe request requires filtering by race, height, and entity type.\nI must determine if 'Human' is a standard value or part of a larger string.\nIdentifying whether to return an ID or a label prevents output errors.\nChecking for uniqueness ensures the result set is not unexpectedly large.\nVerifying the contents of the superhero table confirms the population scope.\n\n---\n\nYour Phase 2 — Schema Deep Dive:\n\n1. [CONFIRMED] The race table contains a text column named race which can be used to find 'Human'.\n2. [CONFIRMED] The colour table provides a descriptive text column for hair colour labels.\n3. [CONFIRMED] The superhero table has height_cm as an integer, allowing for exact numeric filtering.\n4. [NEW] I need to verify if the race_id and hair_colour_id in the superhero table are populated for the target individual.\n5. [CONFIRMED] The schema provides a dedicated superhero table, which supports the assumption that all entries are superheroes.\n\nREASONING:\nThe schema confirms a relational structure linking superheroes to race and colour via foreign keys.\nAll necessary columns for filtering (height_cm, race_id) and selection (hair_colour_id) exist.\nI have confirmed that hair colour is stored in a separate lookup table rather than as text in the main table.\nThe use of integer IDs for height suggests precise measurements are available.\nDirect database probes are now required to verify the existence of 'Human' and the specific height value.\n\n---\n\nPhase 3 — Exploratory Query Results:\n\n1. -- EXISTENCE PROOF: Confirm what distinct race labels exist in the race table.\n   SELECT DISTINCT race FROM race LIMIT 20\n   Columns: race\n   ['-']\n   ['Alien']\n   ['Alpha']\n   ... (20 rows total)\n\n2. -- IDENTIFIER PRECISION: Verify the format of IDs in the race table to ensure they are standard integers.\n   SELECT DISTINCT id FROM race LIMIT 20\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (20 rows total)\n\n3. -- EXISTENCE PROOF: Confirm what distinct colour labels exist for hair and eyes.\n   SELECT DISTINCT colour FROM colour LIMIT 20\n   Columns: colour\n   ['No Colour']\n   ['Amber']\n   ['Auburn']\n   ... (20 rows total)\n\n4. -- IDENTIFIER PRECISION: Verify the format of IDs in the colour table to ensure they are standard integers.\n   SELECT DISTINCT id FROM colour LIMIT 20\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (20 rows total)\n\n5. -- CONNECTIVITY LEMMA: Prove the join path between superhero and race exists by checking the foreign key column.\n   SELECT DISTINCT race_id FROM superhero LIMIT 5\n   Columns: race_id\n   [1]\n   [24]\n   [33]\n   ... (5 rows total)\n\n6. -- CONNECTIVITY LEMMA: Verify the other side of the race join to ensure overlap.\n   SELECT DISTINCT id FROM race LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n7. -- CONNECTIVITY LEMMA: Prove the join path between superhero and colour exists for hair colour.\n   SELECT DISTINCT hair_colour_id FROM superhero LIMIT 5\n   Columns: hair_colour_id\n   [13]\n   [1]\n   [4]\n   ... (5 rows total)\n\n8. -- CONNECTIVITY LEMMA: Verify the other side of the colour join to ensure overlap.\n   SELECT DISTINCT id FROM colour LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n9. -- AXIOMATIC NEUTRALITY: Establish an unfiltered baseline count of all superheroes in the database.\n   SELECT COUNT(*) FROM superhero LIMIT 1\n   Columns: COUNT(*)\n   [750]\n\n10. -- COLUMN SUITABILITY PROOF: Check for nulls in height_cm to ensure it is a reliable filter.\n   SELECT COUNT(*) - COUNT(height_cm) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [58, 750]\n\n11. -- COLUMN SUITABILITY PROOF: Check for nulls in race_id to ensure the human filter will be effective.\n   SELECT COUNT(*) - COUNT(race_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [4, 750]\n\n12. -- COLUMN SUITABILITY PROOF: Check for nulls in hair_colour_id to ensure the target metric is available.\n   SELECT COUNT(*) - COUNT(hair_colour_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [0, 750]\n\n13. -- SCOPE PROOF: Verify how many superheroes have a height of exactly 185 cm.\n   SELECT COUNT(*) FROM superhero WHERE height_cm = 185 LIMIT 1\n   Columns: COUNT(*)\n   [36]\n\n14. -- EXISTENCE PROOF: Check for any variations of the word Human in the race table to ensure filter precision.\n   SELECT DISTINCT race FROM race WHERE race LIKE '%Human%' LIMIT 20\n   Columns: race\n   ['Human']\n   ['Human / Altered']\n   ['Human / Clone']\n   ... (11 rows total)\n\n15. -- SCOPE PROOF: Determine if multiple superheroes share the height of 185 cm to check for uniqueness.\n   SELECT height_cm, COUNT(*) FROM superhero GROUP BY height_cm HAVING COUNT(*) > 1 AND height_cm = 185 LIMIT 1\n   Columns: height_cm, COUNT(*)\n   [185, 36]\n\n---\n\nWork through Phase 4 and Phase 5 now.",
+   "response": "## PHASE 4 — REVISED ASSUMPTIONS\n\n1. Assumption: There is a record with the exact text 'Human' in the race table. [CONFIRMED] Query 14 proves that 'Human' exists as a distinct value, although other variations also exist.\n2. Assumption: The client wants the descriptive label from the colour table. [CONFIRMED] Query 3 confirms the existence of descriptive labels like 'Amber' and 'Auburn'.\n3. Assumption: The filter should be exactly 185 cm. [CONFIRMED] Query 13 proves that records exist with this exact integer value.\n4. Assumption: There is a unique individual at this height. [CONTRADICTED] Query 15 shows there are 36 superheroes with a height of 185 cm, meaning height alone is insufficient for identification.\n5. Assumption: All entries in the superhero table are considered superheroes. [CONFIRMED] The schema and baseline count in Query 9 support this population scope.\n6. Assumption: The race table contains a text column named race. [CONFIRMED] Query 1 proves this column exists and contains descriptive strings.\n7. Assumption: The colour table provides a descriptive text column for hair colour labels. [CONFIRMED] Query 3 confirms the existence of the colour column.\n8. Assumption: The superhero table has height_cm as an integer. [CONFIRMED] Query 13 demonstrates successful numeric filtering on this column.\n9. Assumption: race_id and hair_colour_id are populated for the target individual. [REVISED] Queries 11 and 12 show that while most records are populated, some nulls exist in race_id (4) and height_cm (58), so I must verify these specific fields for the filtered subset.\n10. Assumption: The schema provides a dedicated superhero table supporting population scope. [CONFIRMED] Query 9 confirms the total count of 750 records in this table.\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\nThe original hypothesis holds PARTIALLY. While the join path and column selections are correct, the assumption of uniqueness based on height was disproven; I must now rely on the combination of race and height to isolate the target individual. The query results revealed a surprisingly high number of superheroes (36) at exactly 185 cm and several variations of \"Human\" in the race table (e.g., 'Human / Altered', 'Human / Clone'), which introduces ambiguity regarding whether \"human\" refers strictly to the value 'Human' or any human-based race.\n\nMy updated hypothesis is to join the superhero table to the race table on superhero.race_id = race.id and to the colour table on superhero.hair_colour_id = colour.id. I will filter for superhero.height_cm = 185 and race.race = 'Human'. If this results in a unique record, I will select colour.colour.\n\n## PHASE 5 — CONFIRMATION QUERIES\n\n1. -- RESOLVE [CONTRADICTED]: Determine how many superheroes are both height 185 and exactly 'Human'.\n   SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' LIMIT 1;\n\n2. -- RESOLVE [CONTRADICTED]: Identify the specific superheroes who are height 185 and exactly 'Human'.\n   SELECT superhero.superhero_name, superhero.id FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' LIMIT 20;\n\n3. -- RESOLVE [REVISED]: Check if any other human-like races (Altered/Clone) also have height 185 to check for ambiguity.\n   SELECT race.race, COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race LIKE 'Human%' GROUP BY race.race LIMIT 20;\n\n4. -- RESOLVE [REVISED]: Verify that the hair_colour_id is not null for the human superheroes at height 185.\n   SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' AND superhero.hair_colour_id IS NULL LIMIT 1;\n\n5. -- RESOLVE [REVISED]: Verify the specific hair colour IDs associated with human superheroes at height 185.\n   SELECT DISTINCT superhero.hair_colour_id FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' LIMIT 20;\n\n6. -- DATA QUALITY: Check for trailing spaces in the race column that might affect an exact match on 'Human'.\n   SELECT DISTINCT race FROM race WHERE race LIKE 'Human %' LIMIT 20;\n\n7. -- CONNECTIVITY LEMMA: Ensure the hair_colour_id found for these specific heroes exists in the colour table.\n   SELECT COUNT(*) FROM colour WHERE id IN (SELECT hair_colour_id FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human') LIMIT 1;\n\n8. -- SCOPE PROOF: Check the total number of superheroes with race 'Human' to understand the rarity of this combination.\n   SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE race.race = 'Human' LIMIT 1;\n\n9. -- DATA QUALITY: Verify that there are no duplicate entries for the string 'Human' in the race table.\n   SELECT race, COUNT(*) FROM race WHERE race = 'Human' GROUP BY race LIMIT 1;\n\n10. -- RESOLVE [CONTRADICTED]: Check if any human superhero at height 185 has multiple hair colour entries (though schema suggests one).\n    SELECT superhero.id, COUNT(DISTINCT superhero.hair_colour_id) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' GROUP BY superhero.id HAVING COUNT(*) > 1 LIMIT 20;\n\n11. -- DATA QUALITY: Check if any human superheroes at height 185 have a null name.\n    SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' AND superhero.superhero_name IS NULL LIMIT 1;\n\n12. -- DISTRIBUTION CHECK: See the range of heights for humans to see if 185 is an outlier or common.\n    SELECT MIN(height_cm), MAX(height_cm), AVG(height_cm) FROM superhero JOIN race ON superhero.race_id = race.id WHERE race.race = 'Human' LIMIT 1;\n\n13. -- RESOLVE [REVISED]: Confirm if any other column in the superhero table could be used to further define \"human\".\n    SELECT DISTINCT race_id FROM superhero WHERE height_cm = 185 LIMIT 20;\n\n14. -- DATA QUALITY: Verify that hair_colour_id values for these heroes are positive integers.\n    SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' AND superhero.hair_colour_id <= 0 LIMIT 1;\n\n15. -- FINAL VALIDATION: Verify the join path from superhero to colour specifically for the target subset.\n    SELECT COUNT(*) FROM superhero JOIN colour ON superhero.hair_colour_id = colour.id JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' LIMIT 1;",
+   "phase4": "1. Assumption: There is a record with the exact text 'Human' in the race table. [CONFIRMED] Query 14 proves that 'Human' exists as a distinct value, although other variations also exist.\n2. Assumption: The client wants the descriptive label from the colour table. [CONFIRMED] Query 3 confirms the existence of descriptive labels like 'Amber' and 'Auburn'.\n3. Assumption: The filter should be exactly 185 cm. [CONFIRMED] Query 13 proves that records exist with this exact integer value.\n4. Assumption: There is a unique individual at this height. [CONTRADICTED] Query 15 shows there are 36 superheroes with a height of 185 cm, meaning height alone is insufficient for identification.\n5. Assumption: All entries in the superhero table are considered superheroes. [CONFIRMED] The schema and baseline count in Query 9 support this population scope.\n6. Assumption: The race table contains a text column named race. [CONFIRMED] Query 1 proves this column exists and contains descriptive strings.\n7. Assumption: The colour table provides a descriptive text column for hair colour labels. [CONFIRMED] Query 3 confirms the existence of the colour column.\n8. Assumption: The superhero table has height_cm as an integer. [CONFIRMED] Query 13 demonstrates successful numeric filtering on this column.\n9. Assumption: race_id and hair_colour_id are populated for the target individual. [REVISED] Queries 11 and 12 show that while most records are populated, some nulls exist in race_id (4) and height_cm (58), so I must verify these specific fields for the filtered subset.\n10. Assumption: The schema provides a dedicated superhero table supporting population scope. [CONFIRMED] Query 9 confirms the total count of 750 records in this table.",
+   "phase4b": "The original hypothesis holds PARTIALLY. While the join path and column selections are correct, the assumption of uniqueness based on height was disproven; I must now rely on the combination of race and height to isolate the target individual. The query results revealed a surprisingly high number of superheroes (36) at exactly 185 cm and several variations of \"Human\" in the race table (e.g., 'Human / Altered', 'Human / Clone'), which introduces ambiguity regarding whether \"human\" refers strictly to the value 'Human' or any human-based race.\n\nMy updated hypothesis is to join the superhero table to the race table on superhero.race_id = race.id and to the colour table on superhero.hair_colour_id = colour.id. I will filter for superhero.height_cm = 185 and race.race = 'Human'. If this results in a unique record, I will select colour.colour.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "RESOLVE [CONTRADICTED]: Determine how many superheroes are both height 185 and exactly 'Human'.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       11
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "RESOLVE [CONTRADICTED]: Identify the specific superheroes who are height 185 and exactly 'Human'.",
+     "sql": "SELECT superhero.superhero_name, superhero.id FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "id"
+     ],
+     "head": [
+      [
+       "Adam Strange",
+       9
+      ],
+      [
+       "Darkhawk",
+       208
+      ],
+      [
+       "Deadshot",
+       220
+      ],
+      [
+       "Green Lantern III",
+       309
+      ],
+      [
+       "John Stewart",
+       380
+      ]
+     ],
+     "row_count": 11,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "RESOLVE [REVISED]: Check if any other human-like races (Altered/Clone) also have height 185 to check for ambiguity.",
+     "sql": "SELECT race.race, COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race LIKE 'Human%' GROUP BY race.race LIMIT 20",
+     "status": "success",
+     "columns": [
+      "race",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       "Human",
+       11
+      ],
+      [
+       "Human / Radiation",
+       1
+      ],
+      [
+       "Human-Vulcan",
+       1
+      ]
+     ],
+     "row_count": 3,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "RESOLVE [REVISED]: Verify that the hair_colour_id is not null for the human superheroes at height 185.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' AND superhero.hair_colour_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "RESOLVE [REVISED]: Verify the specific hair colour IDs associated with human superheroes at height 185.",
+     "sql": "SELECT DISTINCT superhero.hair_colour_id FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "hair_colour_id"
+     ],
+     "head": [
+      [
+       6
+      ],
+      [
+       9
+      ],
+      [
+       4
+      ],
+      [
+       11
+      ],
+      [
+       1
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "DATA QUALITY: Check for trailing spaces in the race column that might affect an exact match on 'Human'.",
+     "sql": "SELECT DISTINCT race FROM race WHERE race LIKE 'Human %' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "race"
+     ],
+     "head": [
+      [
+       "Human / Altered"
+      ],
+      [
+       "Human / Clone"
+      ],
+      [
+       "Human / Cosmic"
+      ],
+      [
+       "Human / Radiation"
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "CONNECTIVITY LEMMA: Ensure the hair_colour_id found for these specific heroes exists in the colour table.",
+     "sql": "SELECT COUNT(*) FROM colour WHERE id IN (SELECT hair_colour_id FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human') LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       5
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "SCOPE PROOF: Check the total number of superheroes with race 'Human' to understand the rarity of this combination.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE race.race = 'Human' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       219
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "DATA QUALITY: Verify that there are no duplicate entries for the string 'Human' in the race table.",
+     "sql": "SELECT race, COUNT(*) FROM race WHERE race = 'Human' GROUP BY race LIMIT 1",
+     "status": "success",
+     "columns": [
+      "race",
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       "Human",
+       1
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "RESOLVE [CONTRADICTED]: Check if any human superhero at height 185 has multiple hair colour entries (though schema suggests one).",
+     "sql": "SELECT superhero.id, COUNT(DISTINCT superhero.hair_colour_id) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' GROUP BY superhero.id HAVING COUNT(*) > 1 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "id",
+      "COUNT(DISTINCT superhero.hair_colour_id)"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "DATA QUALITY: Check if any human superheroes at height 185 have a null name.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' AND superhero.superhero_name IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "DISTRIBUTION CHECK: See the range of heights for humans to see if 185 is an outlier or common.",
+     "sql": "SELECT MIN(height_cm), MAX(height_cm), AVG(height_cm) FROM superhero JOIN race ON superhero.race_id = race.id WHERE race.race = 'Human' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "MIN(height_cm)",
+      "MAX(height_cm)",
+      "AVG(height_cm)"
+     ],
+     "head": [
+      [
+       0,
+       297,
+       150.4245283018868
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "RESOLVE [REVISED]: Confirm if any other column in the superhero table could be used to further define \"human\".",
+     "sql": "SELECT DISTINCT race_id FROM superhero WHERE height_cm = 185 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "race_id"
+     ],
+     "head": [
+      [
+       55
+      ],
+      [
+       24
+      ],
+      [
+       8
+      ],
+      [
+       1
+      ],
+      [
+       52
+      ]
+     ],
+     "row_count": 12,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "DATA QUALITY: Verify that hair_colour_id values for these heroes are positive integers.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' AND superhero.hair_colour_id <= 0 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "FINAL VALIDATION: Verify the join path from superhero to colour specifically for the target subset.",
+     "sql": "SELECT COUNT(*) FROM superhero JOIN colour ON superhero.hair_colour_id = colour.id JOIN race ON superhero.race_id = race.id WHERE superhero.height_cm = 185 AND race.race = 'Human' LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       11
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage3": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "\nYou are the director. You are reviewing the work of a junior analyst who investigated a client\nquestion by running SQL queries against the actual database.\n\nYour analyst is good but not infallible. They may have explored the right tables or the wrong ones.\nWhat they give you is raw data from the database — what columns exist, what values appeared, which\njoins worked, which failed. Your job is to use that evidence to write the final SQL.\n\nRules:\n  1. Use the analyst's query results as your evidence base. Column names, table names, join keys,\n     and filter values from PASSED queries are confirmed to exist in the database — use them exactly\n     as they appeared. Queries that FAILED with \"no such column: X\" confirm that X does not exist.\n  2. The analyst may have queried the wrong table or missed a relevant one. Consider all tables\n     the analyst touched, but also re-read the schema to check if a better path exists.\n  3. Write 5 candidates. Each candidate is your best complete answer under a different\n     interpretation of what the question is asking. The interpretations should differ in\n     meaningful ways: which tables to query, which columns to SELECT, which filters to apply,\n     how to aggregate, or what the question fundamentally means.\n\n       C1 — your primary interpretation: the answer you think is most likely correct based on\n             the question text, evidence, and analyst findings. This should be a complete,\n             production-quality query.\n       C2 — second interpretation: a structurally different reading. Perhaps a different table,\n             a different join path, or a different understanding of which column answers the\n             question (e.g., returning an ID instead of a name, or COUNT instead of a list).\n       C3 — third interpretation: another distinct reading. Could differ in aggregation logic,\n             filter scope, or SELECT shape (e.g., including the metric alongside the result).\n       C4 — fourth interpretation: explores a less obvious reading. Different grouping, an\n             additional condition implied by context, or a different column that could answer\n             the same question.\n       C5 — fifth interpretation, most elaborate: if the question could require comparing a\n             value to an aggregate (average, threshold, rank), use Nested Isolation here:\n               Inner query: compute the aggregate (AVG, MAX, COUNT, etc.)\n               Outer query: filter or join against that aggregate result\n             Pattern: SELECT col FROM t WHERE val > (SELECT AVG(val) FROM t)\n             If no aggregate comparison applies, use the most structurally different approach\n             you can justify.\n\n     Each candidate must be a complete, standalone, executable query — not a fragment or\n     simplification. Five variations of the same WHERE clause with minor tweaks is not five\n     interpretations.\n  4. Each candidate must be a complete, standalone, executable SQL query.\n  5. Different interpretations may reasonably differ in SELECT shape. For example, one\n     interpretation might return only COUNT(*), another might return COUNT(*) with the GROUP BY\n     column, and another might return the actual rows. Let each interpretation dictate its own\n     SELECT — do not artificially restrict columns across all five candidates.\n  6. Use LIMIT only when the question asks for a specific number of results (\"top 3\", \"the one\n     with the highest\"). If the question asks for a list without a count, do not use LIMIT.\n  7. You may use window functions (RANK, ROW_NUMBER, etc.) when the question requires ranking\n     within a group or ordering within a partition.\n\n  Proof-by-Cases principle:\n    C1-C5 must represent genuinely different interpretations of the question. If the correct\n    answer exists, at least one interpretation MUST capture it. Each must be structurally\n    distinct — different tables, joins, groupings, SELECT columns, or filter logic.\n\n  Exclusion Principle:\n    Every element in your SQL must be justified by either:\n      (a) the question text explicitly requiring it, or\n      (b) a PASSED query from the analyst's work confirming it exists and is relevant.\n    Do not add columns \"for context\", filters \"for safety\" (IS NOT NULL, status checks),\n    or joins \"just in case\". Unjustified additions are unproven conjectures — they narrow\n    or widen the result set beyond what was asked and cause failures.\n\n  Evidence hierarchy:\n    - PASSED queries with non-zero rows: proven facts. Use the exact column names, table\n      names, and values as they appeared.\n    - FAILED queries (errors): proven non-existence. The column or table does NOT exist\n      in that form. Do not use it.\n    - Zero-row PASSED queries: the filter combination is valid syntax but matches nothing.\n      Consider whether the filter is too restrictive.\n    - [OPEN-VALUE] / [WRONG-TABLE] tags from the analyst: unresolved conjectures. Prefer\n      alternatives that were actually confirmed.\n\nSQLite rules — non-negotiable:\n  - Column names with spaces or special characters MUST be double-quoted: \"Order Date\"\n  - Every query must begin with SELECT. Never use WITH ... AS (CTEs).\n  - Use whatever SQL structure best serves each interpretation: subqueries, window functions,\n    derived tables, or flat SELECT/JOIN/GROUP BY. The only constraint is correctness.\n  - Any query that joins two or more tables MUST assign a short alias to every table\n    (e.g. FROM movies m JOIN ratings r ON m.movie_id = r.movie_id) and MUST qualify every\n    column reference with its alias (e.g. m.movie_title, not just movie_title). Unqualified\n    column references in multi-table queries are ambiguous and will cause runtime errors.\n\nOutput format:\n## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: [what this reading assumes about the question]\nSELECT t1.col FROM t1 JOIN t2 ON t1.id = t2.fk WHERE t1.filter = value\n\n2. -- Second interpretation: [how this differs from C1]\nSELECT t1.id FROM t1 WHERE t1.different_filter = value\n\n3. -- Third interpretation: [what this captures that C1-C2 miss]\nSELECT t1.col, COUNT(*) FROM t1 GROUP BY t1.col\n\n4. -- Fourth interpretation: [alternative approach]\nSELECT t1.col FROM t1 JOIN t3 ON t1.id = t3.fk WHERE t3.filter = value\n\n5. -- Fifth interpretation: [most elaborate or aggregate-comparison approach]\nSELECT t1.col FROM t1 WHERE t1.val > (SELECT AVG(t2.val) FROM t1 t2)\n\nFormat rules:\n  - Numbered 1 through 5 exactly.\n  - Candidate 1 MUST start with \"1. --\" on its own line — never output the first candidate\n    as raw unnumbered SQL.\n  - Comment on same line as the number, starting with --.\n  - SQL starts on the next line, beginning with SELECT.\n  - Blank line between candidates.\n  - No markdown code fences. No bold. No extra headers.\n",
+   "user_prompt": "Question: Provide the hair colour of the human superhero who is 185 cm tall.\n\nDatabase: superhero\n\n---\nANALYST WORK PRODUCT\n\nStage 1 — What was checked and what was found:\n1. Checked: EXISTENCE PROOF: Confirm what distinct race labels exist in the race table.\n   Result: race: -\n   (20 rows total)\n\n2. Checked: IDENTIFIER PRECISION: Verify the format of IDs in the race table to ensure they are standard integers.\n   Result: id: 1\n   (20 rows total)\n\n3. Checked: EXISTENCE PROOF: Confirm what distinct colour labels exist for hair and eyes.\n   Result: colour: No Colour\n   (20 rows total)\n\n4. Checked: IDENTIFIER PRECISION: Verify the format of IDs in the colour table to ensure they are standard integers.\n   Result: id: 1\n   (20 rows total)\n\n5. Checked: CONNECTIVITY LEMMA: Prove the join path between superhero and race exists by checking the foreign key column.\n   Result: race_id: 1\n   (5 rows total)\n\n6. Checked: CONNECTIVITY LEMMA: Verify the other side of the race join to ensure overlap.\n   Result: id: 1\n   (5 rows total)\n\n7. Checked: CONNECTIVITY LEMMA: Prove the join path between superhero and colour exists for hair colour.\n   Result: hair_colour_id: 13\n   (5 rows total)\n\n8. Checked: CONNECTIVITY LEMMA: Verify the other side of the colour join to ensure overlap.\n   Result: id: 1\n   (5 rows total)\n\n9. Checked: AXIOMATIC NEUTRALITY: Establish an unfiltered baseline count of all superheroes in the database.\n   Result: COUNT(*): 750\n\n10. Checked: COLUMN SUITABILITY PROOF: Check for nulls in height_cm to ensure it is a reliable filter.\n   Result: nulls: 58 | total: 750\n\n11. Checked: COLUMN SUITABILITY PROOF: Check for nulls in race_id to ensure the human filter will be effective.\n   Result: nulls: 4 | total: 750\n\n12. Checked: COLUMN SUITABILITY PROOF: Check for nulls in hair_colour_id to ensure the target metric is available.\n   Result: nulls: 0 | total: 750\n\n13. Checked: SCOPE PROOF: Verify how many superheroes have a height of exactly 185 cm.\n   Result: COUNT(*): 36\n\n14. Checked: EXISTENCE PROOF: Check for any variations of the word Human in the race table to ensure filter precision.\n   Result: race: Human\n   (11 rows total)\n\n15. Checked: SCOPE PROOF: Determine if multiple superheroes share the height of 185 cm to check for uniqueness.\n   Result: height_cm: 185 | COUNT(*): 36\n\n\nStage 2 — Hypothesis verdict (Phase 4):\n1. Assumption: There is a record with the exact text 'Human' in the race table. [CONFIRMED] Query 14 proves that 'Human' exists as a distinct value, although other variations also exist.\n2. Assumption: The client wants the descriptive label from the colour table. [CONFIRMED] Query 3 confirms the existence of descriptive labels like 'Amber' and 'Auburn'.\n3. Assumption: The filter should be exactly 185 cm. [CONFIRMED] Query 13 proves that records exist with this exact integer value.\n4. Assumption: There is a unique individual at this height. [CONTRADICTED] Query 15 shows there are 36 superheroes with a height of 185 cm, meaning height alone is insufficient for identification.\n5. Assumption: All entries in the superhero table are considered superheroes. [CONFIRMED] The schema and baseline count in Query 9 support this population scope.\n6. Assumption: The race table contains a text column named race. [CONFIRMED] Query 1 proves this column exists and contains descriptive strings.\n7. Assumption: The colour table provides a descriptive text column for hair colour labels. [CONFIRMED] Query 3 confirms the existence of the colour column.\n8. Assumption: The superhero table has height_cm as an integer. [CONFIRMED] Query 13 demonstrates successful numeric filtering on this column.\n9. Assumption: race_id and hair_colour_id are populated for the target individual. [REVISED] Queries 11 and 12 show that while most records are populated, some nulls exist in race_id (4) and height_cm (58), so I must verify these specific fields for the filtered subset.\n10. Assumption: The schema provides a dedicated superhero table supporting population scope. [CONFIRMED] Query 9 confirms the total count of 750 records in this table.\n\nStage 2 — Winning hypothesis (Phase 4b):\nThe original hypothesis holds PARTIALLY. While the join path and column selections are correct, the assumption of uniqueness based on height was disproven; I must now rely on the combination of race and height to isolate the target individual. The query results revealed a surprisingly high number of superheroes (36) at exactly 185 cm and several variations of \"Human\" in the race table (e.g., 'Human / Altered', 'Human / Clone'), which introduces ambiguity regarding whether \"human\" refers strictly to the value 'Human' or any human-based race.\n\nMy updated hypothesis is to join the superhero table to the race table on superhero.race_id = race.id and to the colour table on superhero.hair_colour_id = colour.id. I will filter for superhero.height_cm = 185 and race.race = 'Human'. If this results in a unique record, I will select colour.colour.\n\nStage 2 — Confirmation checks and what was found:\n1. Checked: RESOLVE [CONTRADICTED]: Determine how many superheroes are both height 185 and exactly 'Human'.\n   Result: COUNT(*): 11\n\n2. Checked: RESOLVE [CONTRADICTED]: Identify the specific superheroes who are height 185 and exactly 'Human'.\n   Result: superhero_name: Adam Strange | id: 9\n   (11 rows total)\n\n3. Checked: RESOLVE [REVISED]: Check if any other human-like races (Altered/Clone) also have height 185 to check for ambiguity.\n   Result: race: Human | COUNT(*): 11\n   (3 rows total)\n\n4. Checked: RESOLVE [REVISED]: Verify that the hair_colour_id is not null for the human superheroes at height 185.\n   Result: COUNT(*): 0\n\n5. Checked: RESOLVE [REVISED]: Verify the specific hair colour IDs associated with human superheroes at height 185.\n   Result: hair_colour_id: 6\n   (5 rows total)\n\n6. Checked: DATA QUALITY: Check for trailing spaces in the race column that might affect an exact match on 'Human'.\n   Result: race: Human / Altered\n   (4 rows total)\n\n7. Checked: CONNECTIVITY LEMMA: Ensure the hair_colour_id found for these specific heroes exists in the colour table.\n   Result: COUNT(*): 5\n\n8. Checked: SCOPE PROOF: Check the total number of superheroes with race 'Human' to understand the rarity of this combination.\n   Result: COUNT(*): 219\n\n9. Checked: DATA QUALITY: Verify that there are no duplicate entries for the string 'Human' in the race table.\n   Result: race: Human | COUNT(*): 1\n\n10. Checked: RESOLVE [CONTRADICTED]: Check if any human superhero at height 185 has multiple hair colour entries (though schema suggests one).\n   Result: (no rows returned)\n\n11. Checked: DATA QUALITY: Check if any human superheroes at height 185 have a null name.\n   Result: COUNT(*): 0\n\n12. Checked: DISTRIBUTION CHECK: See the range of heights for humans to see if 185 is an outlier or common.\n   Result: MIN(height_cm): 0 | MAX(height_cm): 297 | AVG(height_cm): 150.4245283018868\n\n13. Checked: RESOLVE [REVISED]: Confirm if any other column in the superhero table could be used to further define \"human\".\n   Result: race_id: 55\n   (12 rows total)\n\n14. Checked: DATA QUALITY: Verify that hair_colour_id values for these heroes are positive integers.\n   Result: COUNT(*): 0\n\n15. Checked: FINAL VALIDATION: Verify the join path from superhero to colour specifically for the target subset.\n   Result: COUNT(*): 11\n\n\n---\nWrite 5 candidate SQL queries sweeping from the least to the most work required to answer the question.",
+   "response": "## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: The question asks for the descriptive hair colour of superheroes who are exactly 185 cm tall and whose race is exactly 'Human'.\nSELECT c.colour\nFROM superhero s\nJOIN race r ON s.race_id = r.id\nJOIN colour c ON s.hair_colour_id = c.id\nWHERE s.height_cm = 185 AND r.race = 'Human'\n\n2. -- Second interpretation: The question may be interpreted as wanting a list of distinct hair colours found among the group of humans at that height, rather than a row for every individual.\nSELECT DISTINCT c.colour\nFROM superhero s\nJOIN race r ON s.race_id = r.id\nJOIN colour c ON s.hair_colour_id = c.id\nWHERE s.height_cm = 185 AND r.race = 'Human'\n\n3. -- Third interpretation: \"human superhero\" might include any race that is human-based (e.g., 'Human / Altered', 'Human / Clone'), necessitating a partial match on the race name.\nSELECT c.colour\nFROM superhero s\nJOIN race r ON s.race_id = r.id\nJOIN colour c ON s.hair_colour_id = c.id\nWHERE s.height_cm = 185 AND r.race LIKE '%Human%'\n\n4. -- Fourth interpretation: Since the analyst found multiple humans at this height, the user likely wants to know which superhero has which hair colour.\nSELECT s.superhero_name, c.colour\nFROM superhero s\nJOIN race r ON s.race_id = r.id\nJOIN colour c ON s.hair_colour_id = c.id\nWHERE s.height_cm = 185 AND r.race = 'Human'\n\n5. -- Fifth interpretation: Most elaborate approach using Nested Isolation to ensure the height of 185 cm is being compared against the average height of all humans in the database before returning their hair colour.\nSELECT c.colour\nFROM superhero s\nJOIN race r ON s.race_id = r.id\nJOIN colour c ON s.hair_colour_id = c.id\nWHERE s.height_cm = 185 \nAND r.race = 'Human' \nAND s.height_cm > (\n    SELECT AVG(s2.height_cm) \n    FROM superhero s2 \n    JOIN race r2 ON s2.race_id = r2.id \n    WHERE r2.race = 'Human'\n)",
+   "candidates": [
+    {
+     "n": 1,
+     "comment": "Primary interpretation: The question asks for the descriptive hair colour of superheroes who are exactly 185 cm tall and whose race is exactly 'Human'.",
+     "sql": "SELECT c.colour\nFROM superhero s\nJOIN race r ON s.race_id = r.id\nJOIN colour c ON s.hair_colour_id = c.id\nWHERE s.height_cm = 185 AND r.race = 'Human'",
+     "status": "success",
+     "columns": [
+      "colour"
+     ],
+     "rows": [
+      [
+       "Blond"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown/White"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "No Colour"
+      ],
+      [
+       "Brown"
+      ]
+     ],
+     "row_count": 11,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 2,
+     "comment": "Second interpretation: The question may be interpreted as wanting a list of distinct hair colours found among the group of humans at that height, rather than a row for every individual.",
+     "sql": "SELECT DISTINCT c.colour\nFROM superhero s\nJOIN race r ON s.race_id = r.id\nJOIN colour c ON s.hair_colour_id = c.id\nWHERE s.height_cm = 185 AND r.race = 'Human'",
+     "status": "success",
+     "columns": [
+      "colour"
+     ],
+     "rows": [
+      [
+       "Blond"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown/White"
+      ],
+      [
+       "No Colour"
+      ]
+     ],
+     "row_count": 5,
+     "truncated": false,
+     "error": null,
+     "matches_gold": true
+    },
+    {
+     "n": 3,
+     "comment": "Third interpretation: \"human superhero\" might include any race that is human-based (e.g., 'Human / Altered', 'Human / Clone'), necessitating a partial match on the race name.",
+     "sql": "SELECT c.colour\nFROM superhero s\nJOIN race r ON s.race_id = r.id\nJOIN colour c ON s.hair_colour_id = c.id\nWHERE s.height_cm = 185 AND r.race LIKE '%Human%'",
+     "status": "success",
+     "columns": [
+      "colour"
+     ],
+     "rows": [
+      [
+       "Blond"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Brown/White"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "No Colour"
+      ],
+      [
+       "Brown"
+      ]
+     ],
+     "row_count": 13,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 4,
+     "comment": "Fourth interpretation: Since the analyst found multiple humans at this height, the user likely wants to know which superhero has which hair colour.",
+     "sql": "SELECT s.superhero_name, c.colour\nFROM superhero s\nJOIN race r ON s.race_id = r.id\nJOIN colour c ON s.hair_colour_id = c.id\nWHERE s.height_cm = 185 AND r.race = 'Human'",
+     "status": "success",
+     "columns": [
+      "superhero_name",
+      "colour"
+     ],
+     "rows": [
+      [
+       "Adam Strange",
+       "Blond"
+      ],
+      [
+       "Darkhawk",
+       "Brown"
+      ],
+      [
+       "Deadshot",
+       "Brown"
+      ],
+      [
+       "Green Lantern III",
+       "Black"
+      ],
+      [
+       "John Stewart",
+       "Black"
+      ],
+      [
+       "Nick Fury",
+       "Brown/White"
+      ],
+      [
+       "Nova",
+       "Brown"
+      ],
+      [
+       "Plastic Man",
+       "Black"
+      ],
+      [
+       "Sandman",
+       "Brown"
+      ],
+      [
+       "Tiger Shark",
+       "No Colour"
+      ],
+      [
+       "War Machine",
+       "Brown"
+      ]
+     ],
+     "row_count": 11,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 5,
+     "comment": "Fifth interpretation: Most elaborate approach using Nested Isolation to ensure the height of 185 cm is being compared against the average height of all humans in the database before returning their hair colour.",
+     "sql": "SELECT c.colour\nFROM superhero s\nJOIN race r ON s.race_id = r.id\nJOIN colour c ON s.hair_colour_id = c.id\nWHERE s.height_cm = 185 \nAND r.race = 'Human' \nAND s.height_cm > (\n    SELECT AVG(s2.height_cm) \n    FROM superhero s2 \n    JOIN race r2 ON s2.race_id = r2.id \n    WHERE r2.race = 'Human'\n)",
+     "status": "success",
+     "columns": [
+      "colour"
+     ],
+     "rows": [
+      [
+       "Blond"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown/White"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "Black"
+      ],
+      [
+       "Brown"
+      ],
+      [
+       "No Colour"
+      ],
+      [
+       "Brown"
+      ]
+     ],
+     "row_count": 11,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    }
+   ],
+   "chosen": 1,
+   "gold_result": {
+    "columns": [
+     "colour"
+    ],
+    "rows": [
+     [
+      "Blond"
+     ],
+     [
+      "Brown"
+     ],
+     [
+      "Black"
+     ],
+     [
+      "Brown/White"
+     ],
+     [
+      "No Colour"
+     ]
+    ],
+    "row_count": 5
+   }
+  }
+ },
+ "noev_elapsed_s": 580.1,
+ "noev_error": null
+}

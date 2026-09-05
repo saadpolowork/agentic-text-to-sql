@@ -5,3 +5,6 @@ __pycache__/
 .DS_Store
 venv/
 .venv/
+
+# internal working notes — not for the public repo
+HANDOFF.md

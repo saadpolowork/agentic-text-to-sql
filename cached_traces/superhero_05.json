@@ -1,0 +1,1465 @@
+{
+ "db_id": "superhero",
+ "question": "What is the percentage of superheroes who act in their own self-interest or make decisions based on their own moral code? Indicate how many of the said superheroes were published by Marvel Comics.",
+ "evidence": "published by Marvel Comics refers to publisher_name = 'Marvel Comics'; superheroes who act in their own self-interest or make decisions based on their own moral code refers to alignment = 'Bad'; calculation = MULTIPLY(DIVIDE(SUM(alignment = 'Bad); count(id)), 100)",
+ "gold_sql": "SELECT (CAST(COUNT(*) AS REAL) * 100 / (SELECT COUNT(*) FROM superhero)), CAST(SUM(CASE WHEN T2.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) AS REAL) FROM superhero AS T1 INNER JOIN publisher AS T2 ON T1.publisher_id = T2.id INNER JOIN alignment AS T3 ON T3.id = T1.alignment_id WHERE T3.alignment = 'Bad'",
+ "models": {
+  "stage1": "google/gemma-4-31b",
+  "stage2": "google/gemma-4-31b",
+  "stage3": "google/gemma-4-31b"
+ },
+ "stages": {
+  "stage1": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Today is your first day at a new company.\n\nNormally this work takes three days. You do not have three days. You have to do it all today.\n\nHere is how you think through a new client question:\n\nPHASE 1 — Before you look at anything:\nYou read the question and evidence first, with the schema face-down. You write out every question\nyou would want answered and every assumption you are making. You are a philosopher — you think in\nwho, what, when, where, by whom, for whom. You think in counter-proofs. What would make an\nassumption wrong? What encoding or edge case breaks the obvious reading? Stating a wrong assumption\nexplicitly is more honest and useful than a vague non-answer.\n\nPHASE 2 — You look at the schema:\nThe data dictionary arrives: table names, column names, types, primary keys, and foreign key\nrelationships. You do NOT get statistics — no min, max, null counts, or sample values. That is\nwhat Phase 3 is for. Some of your Phase 1 assumptions will be confirmed. Some will be wrong. Some\nnew questions will appear that you could not have thought of without seeing the actual column names.\nYou update every assumption. You tag each question.\n\nPHASE 3 — You write exploratory SQL:\nYou have database access. You are excited and thorough. You know that being new means you earn trust\nby being rigorous, not reckless. You have two phases of thinking behind you — now you turn that into\nexploratory SQL. Write at least 15 queries. The system will reject outputs with fewer than 5 —\nthose records will be skipped entirely and the question will not advance to the next stage.\n\nYou have six proof obligations:\n\n1. EXISTENCE LEMMA (DISTINCT probes):\n   For every categorical column you plan to filter on, run SELECT DISTINCT col FROM table LIMIT 20.\n   This is a direct proof of existence — it proves which values actually live in the database.\n   Without this proof, any filter using that column is an ungrounded conjecture. The system will\n   treat unproven filter values as errors in Stage 2.\n\n2. CONNECTIVITY LEMMA (join verification):\n   Before writing any multi-table JOIN, prove the join path works. Run a query on each side of the\n   join key: SELECT DISTINCT join_col FROM table_a LIMIT 5 and SELECT DISTINCT join_col FROM table_b\n   LIMIT 5. If both return values and they overlap, the join is proven. If either returns zero rows\n   or different types, the join is disproven — do not use it.\n\n3. AXIOMATIC NEUTRALITY (contrapositive for filters):\n   Do not add status, active/inactive, or any other filter unless the question explicitly mentions\n   it. Assume the contrapositive: if the question does not mention a constraint, its absence is\n   correct until you prove otherwise. Run at least one query WITHOUT any assumed filter to establish\n   the unfiltered baseline.\n\n4. COLUMN SUITABILITY PROOFS (null-count & scope):\n   Before using any column for aggregation (COUNT, AVG, SUM, MAX, MIN), run a null-count query:\n   SELECT COUNT(*) - COUNT(col) as nulls, COUNT(*) as total FROM table.\n   If nulls exceed 50% of total, that column is statistically unsuitable as a primary metric —\n   look for alternatives. After identifying your primary filter value, run TWO scope queries:\n   (a) one query WITHOUT the filter — note the total row count (unfiltered universe).\n   (b) one query WITH the filter — note the filtered row count.\n   Compare: if filtered count equals unfiltered count, the filter is a no-op and likely wrong.\n   If filtered count is zero, the value does not exist. Both indicate a scope mismatch.\n\n5. ANNOTATION LEMMA (semantic mapping of opaque columns):\n   If the schema contains column names that are short codes, single letters, abbreviations, or\n   numeric identifiers (e.g., col1, X, stat, code_a), you cannot assume their meaning from the\n   name alone. For every such opaque column that could be relevant to the question, run:\n   SELECT DISTINCT col FROM table LIMIT 20\n   Then annotate each with its apparent meaning based on the values returned. Format your comment:\n   \"ANNOTATION LEMMA: col_name appears to be [description] (values: val1, val2, val3)\"\n   This is a direct proof of semantic identity — without it, any use of an opaque column is an\n   ungrounded assumption about what the column contains.\n\n6. JOIN VERIFICATION (non-key joins):\n   The schema marks primary keys [PK] and foreign keys [FK]. If you plan to join two tables on\n   a column that is NOT marked as a PK or FK, you must prove the join is valid by querying both\n   sides: SELECT DISTINCT col FROM table_a LIMIT 5 and SELECT DISTINCT col FROM table_b LIMIT 5.\n   If the values do not overlap, the join is invalid. PK/FK joins are pre-verified by the schema.\n\nAdditional rules:\n- Multi-part question decomposition: Before writing any Phase 1 assumptions, read the\n  question and ask: does it contain multiple distinct sub-questions? A multi-part question\n  typically uses connectors like \"and\", \"also\", \"as well as\", or asks for two different\n  pieces of information in one sentence (e.g. \"What is X? What is Y for Z?\"). If yes,\n  list each sub-question separately in Phase 1 and treat them as independent proof obligations.\n  Your Phase 3 queries must cover every part — a query that only answers one part of a\n  multi-part question is incomplete. The final SQL must return all parts in a single query\n  (using JOIN, subquery, or multiple SELECT expressions as appropriate).\n- Cover all tables that could relate to the question, not just the most obvious one.\n- SELECT only the columns needed for each specific check — no extra \"context\" columns.\n- Identifier Precision: Determine whether the question asks for a primary identifier\n  (ID, code, number) or a descriptive label (name, title, description). If both columns exist\n  side by side in the same table, run a DISTINCT query on each. Your Phase 1 assumptions must\n  explicitly state which column type the question wants. This prevents the Director from\n  guessing at the SELECT column later.\n- Each query has exactly one SQL comment (-- ...) that is a single complete sentence explaining\n  why this specific piece of information matters for answering the client question.\n- Always use LIMIT. Check both heads and tails for any table you are uncertain about.\n- Do NOT write the final answer query — that comes after you see what these return.\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\nA numbered list. For each item: state the question, then immediately state your current assumption.\nAssumptions can be wrong — that is expected and useful.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, explaining why these are the\nright questions to ask.\n\n## PHASE 2 — SCHEMA REVIEW\nA numbered list. For each item from Phase 1, mark it with exactly one tag:\n  [CONFIRMED] — the profile supports your Phase 1 assumption\n  [REVISED]   — you need to update your assumption based on what you see\n  [NEW]       — a question that did not exist in Phase 1, raised by the schema or statistics\n  [DROPPED]   — this question is no longer relevant given what the profile shows\n\nAfter the tag, give a brief one-sentence reason.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, describing what the profile\nrevealed and what still requires direct database investigation.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\nA numbered list of SQL queries. Minimum 15 queries.\n\nSQLite rules — this is non-negotiable:\n- The database engine is SQLite. Write only SQL that SQLite supports.\n- Column names that contain spaces, parentheses, or special characters MUST be\n  wrapped in double quotes. Example: \"County Name\", \"Free Meal Count (K-12)\".\n  Never write an unquoted column name that contains a space.\n- Do not use window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.).\n- Always use LIMIT.\n- Do NOT write the final answer query.\n\nOutput format for Phase 3 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the department_type column.\n   SELECT DISTINCT department_type FROM departments LIMIT 20;\n\n2. -- SCOPE CHECK: Establish the time range covered by the data.\n   SELECT MIN(hire_date), MAX(hire_date) FROM employees LIMIT 1;\n\n3. -- NULL-COUNT PROOF: Verify salary column suitability for aggregation.\n   SELECT COUNT(*) - COUNT(salary) as nulls, COUNT(*) as total FROM employees LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between employees and departments.\n   SELECT DISTINCT department_id FROM employees LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Other side of the join.\n   SELECT DISTINCT id FROM departments LIMIT 5;\n\n6. -- ANNOTATION LEMMA: Determine what opaque column 'dept_code' actually contains.\n   SELECT DISTINCT dept_code FROM departments LIMIT 20;\n\n7. -- JOIN VERIFICATION: Verify non-key join between employees.role and roles.role_name.\n   SELECT DISTINCT role FROM employees LIMIT 5;\n\n8. -- SCOPE PROOF: Unfiltered universe count for the target table.\n   SELECT COUNT(*) FROM employees LIMIT 1;\n\n9. -- SCOPE PROOF: Filtered count — verify filter narrows to expected scope.\n   SELECT COUNT(*) FROM employees WHERE department_type = 'Engineering' LIMIT 1;",
+   "user_prompt": "A new client question just arrived on your desk.\n\nQuestion: What is the percentage of superheroes who act in their own self-interest or make decisions based on their own moral code? Indicate how many of the said superheroes were published by Marvel Comics.\nEvidence: published by Marvel Comics refers to publisher_name = 'Marvel Comics'; superheroes who act in their own self-interest or make decisions based on their own moral code refers to alignment = 'Bad'; calculation = MULTIPLY(DIVIDE(SUM(alignment = 'Bad); count(id)), 100)\n\nDatabase: superhero\n\nSchema (table names, column names, types, primary keys, foreign keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nWork through all three phases now.",
+   "response": "## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\n\n1. What is the total number of superheroes in the database? Assumption: This count serves as the denominator for the percentage calculation.\n2. Does the alignment table use the exact string 'Bad' to represent those acting in self-interest or their own moral code? Assumption: The evidence provided ('alignment = 'Bad'') is literal and case-sensitive.\n3. Is 'Marvel Comics' the exact string used in the publisher table? Assumption: There are no variations like 'Marvel' or 'Marvel Entertainment'.\n4. Which superheroes have an alignment of 'Bad'? Assumption: This requires joining the superhero table to the alignment table via alignment_id.\n5. Of those with a 'Bad' alignment, how many are linked to Marvel Comics? Assumption: This requires a three-table join or a filtered join between superhero and publisher.\n6. Does the question ask for the count of Marvel superheroes among all heroes, or only among the 'Bad' ones? Assumption: The phrase \"of the said superheroes\" refers specifically to those with 'Bad' alignment.\n7. Are there any superheroes missing alignment or publisher data? Assumption: Null values in these foreign key columns would exclude them from the specific counts but might still be part of the total population.\n8. Does the client want a numeric count or a descriptive list for the Marvel subset? Assumption: \"Indicate how many\" explicitly requests a numeric count.\n\nREASONING:\nI need to verify if 'Bad' is the exact string used for alignment.\nI must confirm that 'Marvel Comics' exists as a distinct publisher name.\nThe relationship between superheroes, alignments, and publishers needs validation.\nCalculating percentages requires an accurate total count of all heroes.\nIdentifying the specific subset of Marvel heroes with bad alignment is the final goal.\n\n## PHASE 2 — SCHEMA REVIEW\n\n1. [CONFIRMED] Total number of superheroes: The superhero table exists with a primary key id.\n2. [CONFIRMED] 'Bad' string in alignment: The alignment table has an alignment text column.\n3. [CONFIRMED] 'Marvel Comics' string in publisher: The publisher table has a publisher_name text column.\n4. [CONFIRMED] Identifying 'Bad' superheroes: superhero.alignment_id links to alignment.id.\n5. [CONFIRMED] Marvel subset of 'Bad' heroes: superhero.publisher_id links to publisher.id.\n6. [CONFIRMED] Scope of the second part: The logic requires filtering by both alignment and publisher.\n7. [NEW] Nullability check: I need to see if alignment_id or publisher_id contain nulls, as this affects percentage calculations.\n8. [CONFIRMED] Numeric count requested: The schema provides IDs and counts are standard aggregations.\n\nREASONING:\nThe schema confirms a normalized structure with separate tables for alignment and publisher.\nForeign keys in the superhero table provide clear join paths to these attributes.\nI must verify if any superheroes are missing alignment or publisher data.\nDirect verification of the strings 'Bad' and 'Marvel Comics' is required.\nThe existence of multiple publishers means I cannot assume Marvel is the only one.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\n\n1. -- EXISTENCE LEMMA: Verify that 'Bad' exists as a value in the alignment table.\nSELECT DISTINCT alignment FROM alignment LIMIT 20;\n\n2. -- EXISTENCE LEMMA: Verify that 'Marvel Comics' exists as a value in the publisher table.\nSELECT DISTINCT publisher_name FROM publisher LIMIT 20;\n\n3. -- CONNECTIVITY LEMMA: Prove the join path between superhero and alignment.\nSELECT DISTINCT alignment_id FROM superhero LIMIT 5;\n\n4. -- CONNECTIVITY LEMMA: Verify the other side of the alignment join key.\nSELECT DISTINCT id FROM alignment LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Prove the join path between superhero and publisher.\nSELECT DISTINCT publisher_id FROM superhero LIMIT 5;\n\n6. -- CONNECTIVITY LEMMA: Verify the other side of the publisher join key.\nSELECT DISTINCT id FROM publisher LIMIT 5;\n\n7. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\nSELECT COUNT(*) FROM superhero LIMIT 1;\n\n8. -- COLUMN SUITABILITY PROOF: Check for nulls in alignment_id to ensure it is suitable for filtering.\nSELECT COUNT(*) - COUNT(alignment_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n9. -- COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to ensure it is suitable for filtering.\nSELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n10. -- SCOPE PROOF: Verify the count of superheroes with 'Bad' alignment to check if the filter is a no-op or empty.\nSELECT COUNT(*) FROM superhero WHERE alignment_id IN (SELECT id FROM alignment WHERE alignment = 'Bad') LIMIT 1;\n\n11. -- SCOPE PROOF: Verify the count of superheroes published by Marvel Comics to ensure the publisher exists in the link table.\nSELECT COUNT(*) FROM superhero WHERE publisher_id IN (SELECT id FROM publisher WHERE publisher_name = 'Marvel Comics') LIMIT 1;\n\n12. -- EXISTENCE LEMMA: Check for case variations or trailing spaces in alignment values.\nSELECT DISTINCT alignment FROM alignment ORDER BY alignment ASC LIMIT 20;\n\n13. -- EXISTENCE LEMMA: Check for case variations or trailing spaces in publisher names.\nSELECT DISTINCT publisher_name FROM publisher ORDER BY publisher_name ASC LIMIT 20;\n\n14. -- COLUMN SUITABILITY PROOF: Explicitly count superheroes with no assigned alignment.\nSELECT COUNT(*) FROM superhero WHERE alignment_id IS NULL LIMIT 1;\n\n15. -- COLUMN SUITABILITY PROOF: Explicitly count superheroes with no assigned publisher.\nSELECT COUNT(*) FROM superhero WHERE publisher_id IS NULL LIMIT 1;",
+   "phase1": "1. What is the total number of superheroes in the database? Assumption: This count serves as the denominator for the percentage calculation.\n2. Does the alignment table use the exact string 'Bad' to represent those acting in self-interest or their own moral code? Assumption: The evidence provided ('alignment = 'Bad'') is literal and case-sensitive.\n3. Is 'Marvel Comics' the exact string used in the publisher table? Assumption: There are no variations like 'Marvel' or 'Marvel Entertainment'.\n4. Which superheroes have an alignment of 'Bad'? Assumption: This requires joining the superhero table to the alignment table via alignment_id.\n5. Of those with a 'Bad' alignment, how many are linked to Marvel Comics? Assumption: This requires a three-table join or a filtered join between superhero and publisher.\n6. Does the question ask for the count of Marvel superheroes among all heroes, or only among the 'Bad' ones? Assumption: The phrase \"of the said superheroes\" refers specifically to those with 'Bad' alignment.\n7. Are there any superheroes missing alignment or publisher data? Assumption: Null values in these foreign key columns would exclude them from the specific counts but might still be part of the total population.\n8. Does the client want a numeric count or a descriptive list for the Marvel subset? Assumption: \"Indicate how many\" explicitly requests a numeric count.\n\nREASONING:\nI need to verify if 'Bad' is the exact string used for alignment.\nI must confirm that 'Marvel Comics' exists as a distinct publisher name.\nThe relationship between superheroes, alignments, and publishers needs validation.\nCalculating percentages requires an accurate total count of all heroes.\nIdentifying the specific subset of Marvel heroes with bad alignment is the final goal.",
+   "phase2": "1. [CONFIRMED] Total number of superheroes: The superhero table exists with a primary key id.\n2. [CONFIRMED] 'Bad' string in alignment: The alignment table has an alignment text column.\n3. [CONFIRMED] 'Marvel Comics' string in publisher: The publisher table has a publisher_name text column.\n4. [CONFIRMED] Identifying 'Bad' superheroes: superhero.alignment_id links to alignment.id.\n5. [CONFIRMED] Marvel subset of 'Bad' heroes: superhero.publisher_id links to publisher.id.\n6. [CONFIRMED] Scope of the second part: The logic requires filtering by both alignment and publisher.\n7. [NEW] Nullability check: I need to see if alignment_id or publisher_id contain nulls, as this affects percentage calculations.\n8. [CONFIRMED] Numeric count requested: The schema provides IDs and counts are standard aggregations.\n\nREASONING:\nThe schema confirms a normalized structure with separate tables for alignment and publisher.\nForeign keys in the superhero table provide clear join paths to these attributes.\nI must verify if any superheroes are missing alignment or publisher data.\nDirect verification of the strings 'Bad' and 'Marvel Comics' is required.\nThe existence of multiple publishers means I cannot assume Marvel is the only one.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "EXISTENCE LEMMA: Verify that 'Bad' exists as a value in the alignment table.",
+     "sql": "SELECT DISTINCT alignment FROM alignment LIMIT 20",
+     "status": "success",
+     "columns": [
+      "alignment"
+     ],
+     "head": [
+      [
+       "Good"
+      ],
+      [
+       "Bad"
+      ],
+      [
+       "Neutral"
+      ],
+      [
+       "N/A"
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "EXISTENCE LEMMA: Verify that 'Marvel Comics' exists as a value in the publisher table.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       ""
+      ],
+      [
+       "ABC Studios"
+      ],
+      [
+       "Dark Horse Comics"
+      ],
+      [
+       "DC Comics"
+      ],
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "CONNECTIVITY LEMMA: Prove the join path between superhero and alignment.",
+     "sql": "SELECT DISTINCT alignment_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "alignment_id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       null
+      ],
+      [
+       3
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "CONNECTIVITY LEMMA: Verify the other side of the alignment join key.",
+     "sql": "SELECT DISTINCT id FROM alignment LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "CONNECTIVITY LEMMA: Prove the join path between superhero and publisher.",
+     "sql": "SELECT DISTINCT publisher_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "publisher_id"
+     ],
+     "head": [
+      [
+       13
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       15
+      ],
+      [
+       25
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "CONNECTIVITY LEMMA: Verify the other side of the publisher join key.",
+     "sql": "SELECT DISTINCT id FROM publisher LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.",
+     "sql": "SELECT COUNT(*) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in alignment_id to ensure it is suitable for filtering.",
+     "sql": "SELECT COUNT(*) - COUNT(alignment_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       6,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to ensure it is suitable for filtering.",
+     "sql": "SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       3,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "SCOPE PROOF: Verify the count of superheroes with 'Bad' alignment to check if the filter is a no-op or empty.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE alignment_id IN (SELECT id FROM alignment WHERE alignment = 'Bad') LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       212
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "SCOPE PROOF: Verify the count of superheroes published by Marvel Comics to ensure the publisher exists in the link table.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id IN (SELECT id FROM publisher WHERE publisher_name = 'Marvel Comics') LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       387
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "EXISTENCE LEMMA: Check for case variations or trailing spaces in alignment values.",
+     "sql": "SELECT DISTINCT alignment FROM alignment ORDER BY alignment ASC LIMIT 20",
+     "status": "success",
+     "columns": [
+      "alignment"
+     ],
+     "head": [
+      [
+       "Bad"
+      ],
+      [
+       "Good"
+      ],
+      [
+       "N/A"
+      ],
+      [
+       "Neutral"
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "EXISTENCE LEMMA: Check for case variations or trailing spaces in publisher names.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher ORDER BY publisher_name ASC LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       ""
+      ],
+      [
+       "ABC Studios"
+      ],
+      [
+       "DC Comics"
+      ],
+      [
+       "Dark Horse Comics"
+      ],
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "COLUMN SUITABILITY PROOF: Explicitly count superheroes with no assigned alignment.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE alignment_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       6
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "COLUMN SUITABILITY PROOF: Explicitly count superheroes with no assigned publisher.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       3
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage2": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Yesterday you worked through a client question in three phases:\nPhase 1 — questions and assumptions written before seeing the schema.\nPhase 2 — schema review, assumptions updated against column profiles.\nPhase 3 — exploratory SQL queries written to investigate the data.\n\nNow the queries have run. You have the results in front of you.\n\nYour job today is three phases:\n\nPHASE 4 — REVISED ASSUMPTIONS\nGo through every assumption you made in Phases 1 and 2. For each one, state what the query results show.\nTag each item with exactly one of:\n  [CONFIRMED]    — a PASSED query directly proves this assumption. Cite the query number.\n  [REVISED]      — results partially support but require adjustment. State what changed and why.\n  [CONTRADICTED] — a query returned zero rows, an error, or unexpected data that disproves this\n                   hypothesis. This is not a failure — it is a proof by contradiction. State clearly\n                   what was disproven and what it implies.\n  [OPEN-VALUE]   — an assumption involves a string filter value that was NEVER confirmed with a\n                   SELECT DISTINCT query. This is an open conjecture — the Director cannot use it.\n                   Phase 5 MUST include a DISTINCT query to resolve it.\n  [WRONG-TABLE]  — query results suggest the data does not live in the assumed table (column doesn't\n                   exist, zero rows where many were expected, data type mismatch). The hypothesis\n                   about which table to use is disproven. Phase 5 must explore the alternative.\n  [LIKE-VS-ENUM] — the analyst used LIKE or a substring match on a name/description column, but\n                   the schema may contain a separate coded or enum column for the same concept\n                   (e.g., filtering by name string when a type_code column exists). Phase 5 MUST\n                   include a DISTINCT query on the potential enum column to check if it provides\n                   a cleaner, exact-match filter.\n\nAfter the tag, write one sentence citing which query result led to this conclusion.\n\nContrapositive test for filters: For each filter in your hypothesis, apply the contrapositive test:\n\"If the question does not explicitly mention this constraint, then it should NOT appear in the WHERE\nclause.\" If Stage 1 added a filter that the question never asked for (e.g. a status filter, an\nactive/inactive check), tag it [CONTRADICTED] with reason: \"contrapositive — question does not\nmention this constraint.\"\n\nPHASE 4b — HYPOTHESIS REVIEW\nWrite a short paragraph (3–5 sentences) answering:\n  1. Does your original hypothesis about how to answer this question still hold?\n     State clearly: YES it holds, NO it needs to change, or PARTIALLY — explain what changed.\n  2. Did the query results reveal anything you did not expect? If so, what?\n  3. What is your updated hypothesis for the final SQL approach?\n\nYour updated hypothesis must name:\n  - The exact table name(s) as they appear in the schema\n  - The exact column name(s) — quoted if they contain spaces\n  - The exact confirmed string value (if a filter is needed) — proven by a DISTINCT query\n  - The exact join path (if tables must be joined) — proven by connectivity lemma queries\n  Vague hypotheses like \"filter by type\" or \"join on the ID column\" are rejected.\n  If any piece is uncertain, tag it [OPEN-VALUE] and resolve it in Phase 5.\n\nPHASE 5 — CONFIRMATION QUERIES\nWrite at least 15 new SQL queries. The system will reject outputs with fewer than 5 — those records\nwill be skipped entirely. These are not exploratory — they are targeted at the gaps, surprises, and\nrevised assumptions from Phases 4 and 4b.\n\nMandatory resolution: Every [OPEN-VALUE] and [WRONG-TABLE] from Phase 4 MUST have a corresponding\nresolution query in Phase 5. An unresolved conjecture is a gap that the Director will fill with\nguesswork — and guesswork is how we get wrong answers.\n  - For [OPEN-VALUE]: run SELECT DISTINCT col FROM table LIMIT 20 to prove the exact value.\n  - For [WRONG-TABLE]: run exploratory queries against the alternative table.\n  - For [LIKE-VS-ENUM]: run SELECT DISTINCT enum_col FROM table LIMIT 20. If the enum column\n    provides exact values that match the question's intent, recommend it over the LIKE filter\n    in your Phase 4b hypothesis update.\n\nDo not repeat queries from Phase 3. Each query must address something new.\n\nSQLite rules — same as before, non-negotiable:\n- Column names with spaces or special characters MUST be double-quoted: \"County Name\"\n- No window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.)\n- Always use LIMIT\n- Do NOT write the final answer query\n\nOutput format for Phase 5 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- RESOLVE [OPEN-VALUE]: Prove what distinct values exist in order_status.\n   SELECT DISTINCT order_status FROM orders LIMIT 20;\n\n2. -- RESOLVE [WRONG-TABLE]: Check if revenue data lives in invoices instead of orders.\n   SELECT COUNT(*), MIN(total), MAX(total) FROM invoices LIMIT 1;\n\n3. -- CONTRAPOSITIVE TEST: Verify results without the assumed 'active' filter.\n   SELECT COUNT(*) FROM customers LIMIT 1;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check if department_code is a cleaner filter than department_name.\n   SELECT DISTINCT department_code, department_name FROM departments LIMIT 20;\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 4 — REVISED ASSUMPTIONS\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\n## PHASE 5 — CONFIRMATION QUERIES",
+   "user_prompt": "The query results are in. Time to review.\n\nQuestion: What is the percentage of superheroes who act in their own self-interest or make decisions based on their own moral code? Indicate how many of the said superheroes were published by Marvel Comics.\nEvidence: published by Marvel Comics refers to publisher_name = 'Marvel Comics'; superheroes who act in their own self-interest or make decisions based on their own moral code refers to alignment = 'Bad'; calculation = MULTIPLY(DIVIDE(SUM(alignment = 'Bad); count(id)), 100)\n\nDatabase: superhero\n\nSchema (same as before — table names, column names, types, join keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\n---\n\nYour Phase 1 — Two Semantic Hypotheses:\n\n1. What is the total number of superheroes in the database? Assumption: This count serves as the denominator for the percentage calculation.\n2. Does the alignment table use the exact string 'Bad' to represent those acting in self-interest or their own moral code? Assumption: The evidence provided ('alignment = 'Bad'') is literal and case-sensitive.\n3. Is 'Marvel Comics' the exact string used in the publisher table? Assumption: There are no variations like 'Marvel' or 'Marvel Entertainment'.\n4. Which superheroes have an alignment of 'Bad'? Assumption: This requires joining the superhero table to the alignment table via alignment_id.\n5. Of those with a 'Bad' alignment, how many are linked to Marvel Comics? Assumption: This requires a three-table join or a filtered join between superhero and publisher.\n6. Does the question ask for the count of Marvel superheroes among all heroes, or only among the 'Bad' ones? Assumption: The phrase \"of the said superheroes\" refers specifically to those with 'Bad' alignment.\n7. Are there any superheroes missing alignment or publisher data? Assumption: Null values in these foreign key columns would exclude them from the specific counts but might still be part of the total population.\n8. Does the client want a numeric count or a descriptive list for the Marvel subset? Assumption: \"Indicate how many\" explicitly requests a numeric count.\n\nREASONING:\nI need to verify if 'Bad' is the exact string used for alignment.\nI must confirm that 'Marvel Comics' exists as a distinct publisher name.\nThe relationship between superheroes, alignments, and publishers needs validation.\nCalculating percentages requires an accurate total count of all heroes.\nIdentifying the specific subset of Marvel heroes with bad alignment is the final goal.\n\n---\n\nYour Phase 2 — Schema Deep Dive:\n\n1. [CONFIRMED] Total number of superheroes: The superhero table exists with a primary key id.\n2. [CONFIRMED] 'Bad' string in alignment: The alignment table has an alignment text column.\n3. [CONFIRMED] 'Marvel Comics' string in publisher: The publisher table has a publisher_name text column.\n4. [CONFIRMED] Identifying 'Bad' superheroes: superhero.alignment_id links to alignment.id.\n5. [CONFIRMED] Marvel subset of 'Bad' heroes: superhero.publisher_id links to publisher.id.\n6. [CONFIRMED] Scope of the second part: The logic requires filtering by both alignment and publisher.\n7. [NEW] Nullability check: I need to see if alignment_id or publisher_id contain nulls, as this affects percentage calculations.\n8. [CONFIRMED] Numeric count requested: The schema provides IDs and counts are standard aggregations.\n\nREASONING:\nThe schema confirms a normalized structure with separate tables for alignment and publisher.\nForeign keys in the superhero table provide clear join paths to these attributes.\nI must verify if any superheroes are missing alignment or publisher data.\nDirect verification of the strings 'Bad' and 'Marvel Comics' is required.\nThe existence of multiple publishers means I cannot assume Marvel is the only one.\n\n---\n\nPhase 3 — Exploratory Query Results:\n\n1. -- EXISTENCE LEMMA: Verify that 'Bad' exists as a value in the alignment table.\n   SELECT DISTINCT alignment FROM alignment LIMIT 20\n   Columns: alignment\n   ['Good']\n   ['Bad']\n   ['Neutral']\n   ... (4 rows total)\n\n2. -- EXISTENCE LEMMA: Verify that 'Marvel Comics' exists as a value in the publisher table.\n   SELECT DISTINCT publisher_name FROM publisher LIMIT 20\n   Columns: publisher_name\n   ['']\n   ['ABC Studios']\n   ['Dark Horse Comics']\n   ... (20 rows total)\n\n3. -- CONNECTIVITY LEMMA: Prove the join path between superhero and alignment.\n   SELECT DISTINCT alignment_id FROM superhero LIMIT 5\n   Columns: alignment_id\n   [1]\n   [2]\n   [None]\n   ... (4 rows total)\n\n4. -- CONNECTIVITY LEMMA: Verify the other side of the alignment join key.\n   SELECT DISTINCT id FROM alignment LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (4 rows total)\n\n5. -- CONNECTIVITY LEMMA: Prove the join path between superhero and publisher.\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5\n   Columns: publisher_id\n   [13]\n   [3]\n   [4]\n   ... (5 rows total)\n\n6. -- CONNECTIVITY LEMMA: Verify the other side of the publisher join key.\n   SELECT DISTINCT id FROM publisher LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n7. -- AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\n   SELECT COUNT(*) FROM superhero LIMIT 1\n   Columns: COUNT(*)\n   [750]\n\n8. -- COLUMN SUITABILITY PROOF: Check for nulls in alignment_id to ensure it is suitable for filtering.\n   SELECT COUNT(*) - COUNT(alignment_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [6, 750]\n\n9. -- COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to ensure it is suitable for filtering.\n   SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [3, 750]\n\n10. -- SCOPE PROOF: Verify the count of superheroes with 'Bad' alignment to check if the filter is a no-op or empty.\n   SELECT COUNT(*) FROM superhero WHERE alignment_id IN (SELECT id FROM alignment WHERE alignment = 'Bad') LIMIT 1\n   Columns: COUNT(*)\n   [212]\n\n11. -- SCOPE PROOF: Verify the count of superheroes published by Marvel Comics to ensure the publisher exists in the link table.\n   SELECT COUNT(*) FROM superhero WHERE publisher_id IN (SELECT id FROM publisher WHERE publisher_name = 'Marvel Comics') LIMIT 1\n   Columns: COUNT(*)\n   [387]\n\n12. -- EXISTENCE LEMMA: Check for case variations or trailing spaces in alignment values.\n   SELECT DISTINCT alignment FROM alignment ORDER BY alignment ASC LIMIT 20\n   Columns: alignment\n   ['Bad']\n   ['Good']\n   ['N/A']\n   ... (4 rows total)\n\n13. -- EXISTENCE LEMMA: Check for case variations or trailing spaces in publisher names.\n   SELECT DISTINCT publisher_name FROM publisher ORDER BY publisher_name ASC LIMIT 20\n   Columns: publisher_name\n   ['']\n   ['ABC Studios']\n   ['DC Comics']\n   ... (20 rows total)\n\n14. -- COLUMN SUITABILITY PROOF: Explicitly count superheroes with no assigned alignment.\n   SELECT COUNT(*) FROM superhero WHERE alignment_id IS NULL LIMIT 1\n   Columns: COUNT(*)\n   [6]\n\n15. -- COLUMN SUITABILITY PROOF: Explicitly count superheroes with no assigned publisher.\n   SELECT COUNT(*) FROM superhero WHERE publisher_id IS NULL LIMIT 1\n   Columns: COUNT(*)\n   [3]\n\n---\n\nWork through Phase 4 and Phase 5 now.",
+   "response": "## PHASE 4 — REVISED ASSUMPTIONS\n\n1. Total number of superheroes as denominator: [CONFIRMED] Query 7 establishes a baseline total of 750 superheroes.\n2. 'Bad' string for alignment: [CONFIRMED] Query 1 and 12 prove the exact value 'Bad' exists in the alignment table.\n3. 'Marvel Comics' string exclusivity: [OPEN-VALUE] Query 11 proves 'Marvel Comics' exists, but no query has yet confirmed that other variations (e.g., 'Marvel') do not exist.\n4. Join superhero to alignment via alignment_id: [CONFIRMED] Queries 3 and 4 prove the connectivity between these tables.\n5. Join superhero to publisher via publisher_id: [CONFIRMED] Queries 5 and 6 prove the connectivity between these tables.\n6. Scope of second part (Marvel subset of 'Bad' heroes): [CONFIRMED] This is a logical interpretation of \"of the said superheroes\" consistent with provided evidence.\n7. Impact of nulls in foreign keys: [CONFIRMED] Queries 8, 9, 14, and 15 confirm that some superheroes lack alignment (6) or publisher (3) data.\n8. Numeric count requested for Marvel subset: [CONFIRMED] Standard interpretation of \"Indicate how many\".\n\nContrapositive Test: All filters used in the hypotheses ('Bad' and 'Marvel Comics') are explicitly mentioned in the evidence provided; no external constraints (such as status or activity flags) were added.\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\nYES, the original hypothesis holds. The query results confirm that the database is normalized and the join paths between superheroes, alignments, and publishers are valid. The only remaining uncertainty is whether 'Marvel Comics' is the sole string used for Marvel properties or if other variations exist that should be considered (though I will prioritize the evidence-provided string).\n\nMy updated hypothesis for the final SQL approach:\nJoin the `superhero` table to the `alignment` table on `superhero.alignment_id = alignment.id` and to the `publisher` table on `superhero.publisher_id = publisher.id`. Filter by `alignment.alignment = 'Bad'` to calculate the percentage against the total count of all records in the `superhero` table. For the second part, apply an additional filter where `publisher.publisher_name = 'Marvel Comics'` [OPEN-VALUE] (pending confirmation that no other Marvel variations are required) to get the specific count of \"Bad\" superheroes from that publisher.\n\n## PHASE 5 — CONFIRMATION QUERIES\n\n1. -- RESOLVE [OPEN-VALUE]: Check for any other publishers containing the word 'Marvel' to ensure exclusivity.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel%' LIMIT 20;\n\n2. -- DATA INTEGRITY: Check for superheroes with an alignment_id that does not exist in the alignment table.\n   SELECT COUNT(*) FROM superhero WHERE alignment_id NOT IN (SELECT id FROM alignment) AND alignment_id IS NOT NULL LIMIT 1;\n\n3. -- DATA INTEGRITY: Check for superheroes with a publisher_id that does not exist in the publisher table.\n   SELECT COUNT(*) FROM superhero WHERE publisher_id NOT IN (SELECT id FROM publisher) AND publisher_id IS NOT NULL LIMIT 1;\n\n4. -- STRING CLEANLINESS: Search for alignment values that are 'Bad' but may have leading or trailing whitespace.\n   SELECT DISTINCT alignment FROM alignment WHERE alignment LIKE '%Bad%' LIMIT 20;\n\n5. -- STRING CLEANLINESS: Search for publisher names that are 'Marvel Comics' but may have leading or trailing whitespace.\n   SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel Comics%' LIMIT 20;\n\n6. -- UNIQUENESS CHECK: Verify if there are duplicate alignment strings in the alignment table.\n   SELECT alignment, COUNT(*) FROM alignment GROUP BY alignment HAVING COUNT(*) > 1 LIMIT 20;\n\n7. -- UNIQUENESS CHECK: Verify if there are duplicate publisher names in the publisher table.\n   SELECT publisher_name, COUNT(*) FROM publisher GROUP BY publisher_name HAVING COUNT(*) > 1 LIMIT 20;\n\n8. -- NULL ANALYSIS: Check for superheroes who are missing both alignment and publisher data.\n   SELECT COUNT(*) FROM superhero WHERE alignment_id IS NULL AND publisher_id IS NULL LIMIT 1;\n\n9. -- VALUE DISTRIBUTION: Verify the count of 'Good' superheroes to ensure the alignment distribution is balanced.\n   SELECT COUNT(*) FROM superhero WHERE alignment_id IN (SELECT id FROM alignment WHERE alignment = 'Good') LIMIT 1;\n\n10. -- VALUE DISTRIBUTION: Verify the count of 'Neutral' superheroes to ensure the alignment distribution is balanced.\n    SELECT COUNT(*) FROM superhero WHERE alignment_id IN (SELECT id FROM alignment WHERE alignment = 'Neutral') LIMIT 1;\n\n11. -- STRING CLEANLINESS: Check for any empty or whitespace-only strings in the alignment column.\n    SELECT COUNT(*) FROM alignment WHERE alignment = '' OR alignment IS NULL LIMIT 1;\n\n12. -- STRING CLEANLINESS: Check for any empty or whitespace-only strings in the publisher_name column.\n    SELECT COUNT(*) FROM publisher WHERE publisher_name = '' OR publisher_name IS NULL LIMIT 1;\n\n13. -- RANGE CHECK: Ensure alignment_id values are positive integers.\n    SELECT COUNT(*) FROM superhero WHERE alignment_id <= 0 LIMIT 1;\n\n14. -- RANGE CHECK: Ensure publisher_id values are positive integers.\n    SELECT COUNT(*) FROM superhero WHERE publisher_id <= 0 LIMIT 1;\n\n15. -- SCALE CHECK: Get the total number of distinct publishers to understand the size of the lookup table.\n    SELECT COUNT(DISTINCT publisher_name) FROM publisher LIMIT 1;",
+   "phase4": "1. Total number of superheroes as denominator: [CONFIRMED] Query 7 establishes a baseline total of 750 superheroes.\n2. 'Bad' string for alignment: [CONFIRMED] Query 1 and 12 prove the exact value 'Bad' exists in the alignment table.\n3. 'Marvel Comics' string exclusivity: [OPEN-VALUE] Query 11 proves 'Marvel Comics' exists, but no query has yet confirmed that other variations (e.g., 'Marvel') do not exist.\n4. Join superhero to alignment via alignment_id: [CONFIRMED] Queries 3 and 4 prove the connectivity between these tables.\n5. Join superhero to publisher via publisher_id: [CONFIRMED] Queries 5 and 6 prove the connectivity between these tables.\n6. Scope of second part (Marvel subset of 'Bad' heroes): [CONFIRMED] This is a logical interpretation of \"of the said superheroes\" consistent with provided evidence.\n7. Impact of nulls in foreign keys: [CONFIRMED] Queries 8, 9, 14, and 15 confirm that some superheroes lack alignment (6) or publisher (3) data.\n8. Numeric count requested for Marvel subset: [CONFIRMED] Standard interpretation of \"Indicate how many\".\n\nContrapositive Test: All filters used in the hypotheses ('Bad' and 'Marvel Comics') are explicitly mentioned in the evidence provided; no external constraints (such as status or activity flags) were added.",
+   "phase4b": "YES, the original hypothesis holds. The query results confirm that the database is normalized and the join paths between superheroes, alignments, and publishers are valid. The only remaining uncertainty is whether 'Marvel Comics' is the sole string used for Marvel properties or if other variations exist that should be considered (though I will prioritize the evidence-provided string).\n\nMy updated hypothesis for the final SQL approach:\nJoin the `superhero` table to the `alignment` table on `superhero.alignment_id = alignment.id` and to the `publisher` table on `superhero.publisher_id = publisher.id`. Filter by `alignment.alignment = 'Bad'` to calculate the percentage against the total count of all records in the `superhero` table. For the second part, apply an additional filter where `publisher.publisher_name = 'Marvel Comics'` [OPEN-VALUE] (pending confirmation that no other Marvel variations are required) to get the specific count of \"Bad\" superheroes from that publisher.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "RESOLVE [OPEN-VALUE]: Check for any other publishers containing the word 'Marvel' to ensure exclusivity.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "DATA INTEGRITY: Check for superheroes with an alignment_id that does not exist in the alignment table.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE alignment_id NOT IN (SELECT id FROM alignment) AND alignment_id IS NOT NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "DATA INTEGRITY: Check for superheroes with a publisher_id that does not exist in the publisher table.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id NOT IN (SELECT id FROM publisher) AND publisher_id IS NOT NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "STRING CLEANLINESS: Search for alignment values that are 'Bad' but may have leading or trailing whitespace.",
+     "sql": "SELECT DISTINCT alignment FROM alignment WHERE alignment LIKE '%Bad%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "alignment"
+     ],
+     "head": [
+      [
+       "Bad"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "STRING CLEANLINESS: Search for publisher names that are 'Marvel Comics' but may have leading or trailing whitespace.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel Comics%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "UNIQUENESS CHECK: Verify if there are duplicate alignment strings in the alignment table.",
+     "sql": "SELECT alignment, COUNT(*) FROM alignment GROUP BY alignment HAVING COUNT(*) > 1 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "alignment",
+      "COUNT(*)"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "UNIQUENESS CHECK: Verify if there are duplicate publisher names in the publisher table.",
+     "sql": "SELECT publisher_name, COUNT(*) FROM publisher GROUP BY publisher_name HAVING COUNT(*) > 1 LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name",
+      "COUNT(*)"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "NULL ANALYSIS: Check for superheroes who are missing both alignment and publisher data.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE alignment_id IS NULL AND publisher_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "VALUE DISTRIBUTION: Verify the count of 'Good' superheroes to ensure the alignment distribution is balanced.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE alignment_id IN (SELECT id FROM alignment WHERE alignment = 'Good') LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       504
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "VALUE DISTRIBUTION: Verify the count of 'Neutral' superheroes to ensure the alignment distribution is balanced.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE alignment_id IN (SELECT id FROM alignment WHERE alignment = 'Neutral') LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       28
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "STRING CLEANLINESS: Check for any empty or whitespace-only strings in the alignment column.",
+     "sql": "SELECT COUNT(*) FROM alignment WHERE alignment = '' OR alignment IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "STRING CLEANLINESS: Check for any empty or whitespace-only strings in the publisher_name column.",
+     "sql": "SELECT COUNT(*) FROM publisher WHERE publisher_name = '' OR publisher_name IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       1
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "RANGE CHECK: Ensure alignment_id values are positive integers.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE alignment_id <= 0 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "RANGE CHECK: Ensure publisher_id values are positive integers.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id <= 0 LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "SCALE CHECK: Get the total number of distinct publishers to understand the size of the lookup table.",
+     "sql": "SELECT COUNT(DISTINCT publisher_name) FROM publisher LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(DISTINCT publisher_name)"
+     ],
+     "head": [
+      [
+       25
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage3": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "\nYou are the director. You are reviewing the work of a junior analyst who investigated a client\nquestion by running SQL queries against the actual database.\n\nYour analyst is good but not infallible. They may have explored the right tables or the wrong ones.\nWhat they give you is raw data from the database — what columns exist, what values appeared, which\njoins worked, which failed. Your job is to use that evidence to write the final SQL.\n\nRules:\n  1. Use the analyst's query results as your evidence base. Column names, table names, join keys,\n     and filter values from PASSED queries are confirmed to exist in the database — use them exactly\n     as they appeared. Queries that FAILED with \"no such column: X\" confirm that X does not exist.\n  2. The analyst may have queried the wrong table or missed a relevant one. Consider all tables\n     the analyst touched, but also re-read the schema to check if a better path exists.\n  3. Write 5 candidates. Each candidate is your best complete answer under a different\n     interpretation of what the question is asking. The interpretations should differ in\n     meaningful ways: which tables to query, which columns to SELECT, which filters to apply,\n     how to aggregate, or what the question fundamentally means.\n\n       C1 — your primary interpretation: the answer you think is most likely correct based on\n             the question text, evidence, and analyst findings. This should be a complete,\n             production-quality query.\n       C2 — second interpretation: a structurally different reading. Perhaps a different table,\n             a different join path, or a different understanding of which column answers the\n             question (e.g., returning an ID instead of a name, or COUNT instead of a list).\n       C3 — third interpretation: another distinct reading. Could differ in aggregation logic,\n             filter scope, or SELECT shape (e.g., including the metric alongside the result).\n       C4 — fourth interpretation: explores a less obvious reading. Different grouping, an\n             additional condition implied by context, or a different column that could answer\n             the same question.\n       C5 — fifth interpretation, most elaborate: if the question could require comparing a\n             value to an aggregate (average, threshold, rank), use Nested Isolation here:\n               Inner query: compute the aggregate (AVG, MAX, COUNT, etc.)\n               Outer query: filter or join against that aggregate result\n             Pattern: SELECT col FROM t WHERE val > (SELECT AVG(val) FROM t)\n             If no aggregate comparison applies, use the most structurally different approach\n             you can justify.\n\n     Each candidate must be a complete, standalone, executable query — not a fragment or\n     simplification. Five variations of the same WHERE clause with minor tweaks is not five\n     interpretations.\n  4. Each candidate must be a complete, standalone, executable SQL query.\n  5. Different interpretations may reasonably differ in SELECT shape. For example, one\n     interpretation might return only COUNT(*), another might return COUNT(*) with the GROUP BY\n     column, and another might return the actual rows. Let each interpretation dictate its own\n     SELECT — do not artificially restrict columns across all five candidates.\n  6. Use LIMIT only when the question asks for a specific number of results (\"top 3\", \"the one\n     with the highest\"). If the question asks for a list without a count, do not use LIMIT.\n  7. You may use window functions (RANK, ROW_NUMBER, etc.) when the question requires ranking\n     within a group or ordering within a partition.\n\n  Proof-by-Cases principle:\n    C1-C5 must represent genuinely different interpretations of the question. If the correct\n    answer exists, at least one interpretation MUST capture it. Each must be structurally\n    distinct — different tables, joins, groupings, SELECT columns, or filter logic.\n\n  Exclusion Principle:\n    Every element in your SQL must be justified by either:\n      (a) the question text explicitly requiring it, or\n      (b) a PASSED query from the analyst's work confirming it exists and is relevant.\n    Do not add columns \"for context\", filters \"for safety\" (IS NOT NULL, status checks),\n    or joins \"just in case\". Unjustified additions are unproven conjectures — they narrow\n    or widen the result set beyond what was asked and cause failures.\n\n  Evidence hierarchy:\n    - PASSED queries with non-zero rows: proven facts. Use the exact column names, table\n      names, and values as they appeared.\n    - FAILED queries (errors): proven non-existence. The column or table does NOT exist\n      in that form. Do not use it.\n    - Zero-row PASSED queries: the filter combination is valid syntax but matches nothing.\n      Consider whether the filter is too restrictive.\n    - [OPEN-VALUE] / [WRONG-TABLE] tags from the analyst: unresolved conjectures. Prefer\n      alternatives that were actually confirmed.\n\nSQLite rules — non-negotiable:\n  - Column names with spaces or special characters MUST be double-quoted: \"Order Date\"\n  - Every query must begin with SELECT. Never use WITH ... AS (CTEs).\n  - Use whatever SQL structure best serves each interpretation: subqueries, window functions,\n    derived tables, or flat SELECT/JOIN/GROUP BY. The only constraint is correctness.\n  - Any query that joins two or more tables MUST assign a short alias to every table\n    (e.g. FROM movies m JOIN ratings r ON m.movie_id = r.movie_id) and MUST qualify every\n    column reference with its alias (e.g. m.movie_title, not just movie_title). Unqualified\n    column references in multi-table queries are ambiguous and will cause runtime errors.\n\nOutput format:\n## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: [what this reading assumes about the question]\nSELECT t1.col FROM t1 JOIN t2 ON t1.id = t2.fk WHERE t1.filter = value\n\n2. -- Second interpretation: [how this differs from C1]\nSELECT t1.id FROM t1 WHERE t1.different_filter = value\n\n3. -- Third interpretation: [what this captures that C1-C2 miss]\nSELECT t1.col, COUNT(*) FROM t1 GROUP BY t1.col\n\n4. -- Fourth interpretation: [alternative approach]\nSELECT t1.col FROM t1 JOIN t3 ON t1.id = t3.fk WHERE t3.filter = value\n\n5. -- Fifth interpretation: [most elaborate or aggregate-comparison approach]\nSELECT t1.col FROM t1 WHERE t1.val > (SELECT AVG(t2.val) FROM t1 t2)\n\nFormat rules:\n  - Numbered 1 through 5 exactly.\n  - Candidate 1 MUST start with \"1. --\" on its own line — never output the first candidate\n    as raw unnumbered SQL.\n  - Comment on same line as the number, starting with --.\n  - SQL starts on the next line, beginning with SELECT.\n  - Blank line between candidates.\n  - No markdown code fences. No bold. No extra headers.\n",
+   "user_prompt": "Question: What is the percentage of superheroes who act in their own self-interest or make decisions based on their own moral code? Indicate how many of the said superheroes were published by Marvel Comics.\nEvidence: published by Marvel Comics refers to publisher_name = 'Marvel Comics'; superheroes who act in their own self-interest or make decisions based on their own moral code refers to alignment = 'Bad'; calculation = MULTIPLY(DIVIDE(SUM(alignment = 'Bad); count(id)), 100)\n\nDatabase: superhero\n\n---\nANALYST WORK PRODUCT\n\nStage 1 — What was checked and what was found:\n1. Checked: EXISTENCE LEMMA: Verify that 'Bad' exists as a value in the alignment table.\n   Result: alignment: Good\n   (4 rows total)\n\n2. Checked: EXISTENCE LEMMA: Verify that 'Marvel Comics' exists as a value in the publisher table.\n   Result: publisher_name: \n   (20 rows total)\n\n3. Checked: CONNECTIVITY LEMMA: Prove the join path between superhero and alignment.\n   Result: alignment_id: 1\n   (4 rows total)\n\n4. Checked: CONNECTIVITY LEMMA: Verify the other side of the alignment join key.\n   Result: id: 1\n   (4 rows total)\n\n5. Checked: CONNECTIVITY LEMMA: Prove the join path between superhero and publisher.\n   Result: publisher_id: 13\n   (5 rows total)\n\n6. Checked: CONNECTIVITY LEMMA: Verify the other side of the publisher join key.\n   Result: id: 1\n   (5 rows total)\n\n7. Checked: AXIOMATIC NEUTRALITY: Establish the unfiltered baseline count of all superheroes.\n   Result: COUNT(*): 750\n\n8. Checked: COLUMN SUITABILITY PROOF: Check for nulls in alignment_id to ensure it is suitable for filtering.\n   Result: nulls: 6 | total: 750\n\n9. Checked: COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to ensure it is suitable for filtering.\n   Result: nulls: 3 | total: 750\n\n10. Checked: SCOPE PROOF: Verify the count of superheroes with 'Bad' alignment to check if the filter is a no-op or empty.\n   Result: COUNT(*): 212\n\n11. Checked: SCOPE PROOF: Verify the count of superheroes published by Marvel Comics to ensure the publisher exists in the link table.\n   Result: COUNT(*): 387\n\n12. Checked: EXISTENCE LEMMA: Check for case variations or trailing spaces in alignment values.\n   Result: alignment: Bad\n   (4 rows total)\n\n13. Checked: EXISTENCE LEMMA: Check for case variations or trailing spaces in publisher names.\n   Result: publisher_name: \n   (20 rows total)\n\n14. Checked: COLUMN SUITABILITY PROOF: Explicitly count superheroes with no assigned alignment.\n   Result: COUNT(*): 6\n\n15. Checked: COLUMN SUITABILITY PROOF: Explicitly count superheroes with no assigned publisher.\n   Result: COUNT(*): 3\n\n\nStage 2 — Hypothesis verdict (Phase 4):\n1. Total number of superheroes as denominator: [CONFIRMED] Query 7 establishes a baseline total of 750 superheroes.\n2. 'Bad' string for alignment: [CONFIRMED] Query 1 and 12 prove the exact value 'Bad' exists in the alignment table.\n3. 'Marvel Comics' string exclusivity: [OPEN-VALUE] Query 11 proves 'Marvel Comics' exists, but no query has yet confirmed that other variations (e.g., 'Marvel') do not exist.\n4. Join superhero to alignment via alignment_id: [CONFIRMED] Queries 3 and 4 prove the connectivity between these tables.\n5. Join superhero to publisher via publisher_id: [CONFIRMED] Queries 5 and 6 prove the connectivity between these tables.\n6. Scope of second part (Marvel subset of 'Bad' heroes): [CONFIRMED] This is a logical interpretation of \"of the said superheroes\" consistent with provided evidence.\n7. Impact of nulls in foreign keys: [CONFIRMED] Queries 8, 9, 14, and 15 confirm that some superheroes lack alignment (6) or publisher (3) data.\n8. Numeric count requested for Marvel subset: [CONFIRMED] Standard interpretation of \"Indicate how many\".\n\nContrapositive Test: All filters used in the hypotheses ('Bad' and 'Marvel Comics') are explicitly mentioned in the evidence provided; no external constraints (such as status or activity flags) were added.\n\nStage 2 — Winning hypothesis (Phase 4b):\nYES, the original hypothesis holds. The query results confirm that the database is normalized and the join paths between superheroes, alignments, and publishers are valid. The only remaining uncertainty is whether 'Marvel Comics' is the sole string used for Marvel properties or if other variations exist that should be considered (though I will prioritize the evidence-provided string).\n\nMy updated hypothesis for the final SQL approach:\nJoin the `superhero` table to the `alignment` table on `superhero.alignment_id = alignment.id` and to the `publisher` table on `superhero.publisher_id = publisher.id`. Filter by `alignment.alignment = 'Bad'` to calculate the percentage against the total count of all records in the `superhero` table. For the second part, apply an additional filter where `publisher.publisher_name = 'Marvel Comics'` [OPEN-VALUE] (pending confirmation that no other Marvel variations are required) to get the specific count of \"Bad\" superheroes from that publisher.\n\nStage 2 — Confirmation checks and what was found:\n1. Checked: RESOLVE [OPEN-VALUE]: Check for any other publishers containing the word 'Marvel' to ensure exclusivity.\n   Result: publisher_name: Marvel Comics\n\n2. Checked: DATA INTEGRITY: Check for superheroes with an alignment_id that does not exist in the alignment table.\n   Result: COUNT(*): 0\n\n3. Checked: DATA INTEGRITY: Check for superheroes with a publisher_id that does not exist in the publisher table.\n   Result: COUNT(*): 0\n\n4. Checked: STRING CLEANLINESS: Search for alignment values that are 'Bad' but may have leading or trailing whitespace.\n   Result: alignment: Bad\n\n5. Checked: STRING CLEANLINESS: Search for publisher names that are 'Marvel Comics' but may have leading or trailing whitespace.\n   Result: publisher_name: Marvel Comics\n\n6. Checked: UNIQUENESS CHECK: Verify if there are duplicate alignment strings in the alignment table.\n   Result: (no rows returned)\n\n7. Checked: UNIQUENESS CHECK: Verify if there are duplicate publisher names in the publisher table.\n   Result: (no rows returned)\n\n8. Checked: NULL ANALYSIS: Check for superheroes who are missing both alignment and publisher data.\n   Result: COUNT(*): 0\n\n9. Checked: VALUE DISTRIBUTION: Verify the count of 'Good' superheroes to ensure the alignment distribution is balanced.\n   Result: COUNT(*): 504\n\n10. Checked: VALUE DISTRIBUTION: Verify the count of 'Neutral' superheroes to ensure the alignment distribution is balanced.\n   Result: COUNT(*): 28\n\n11. Checked: STRING CLEANLINESS: Check for any empty or whitespace-only strings in the alignment column.\n   Result: COUNT(*): 0\n\n12. Checked: STRING CLEANLINESS: Check for any empty or whitespace-only strings in the publisher_name column.\n   Result: COUNT(*): 1\n\n13. Checked: RANGE CHECK: Ensure alignment_id values are positive integers.\n   Result: COUNT(*): 0\n\n14. Checked: RANGE CHECK: Ensure publisher_id values are positive integers.\n   Result: COUNT(*): 0\n\n15. Checked: SCALE CHECK: Get the total number of distinct publishers to understand the size of the lookup table.\n   Result: COUNT(DISTINCT publisher_name): 25\n\n\n---\nWrite 5 candidate SQL queries sweeping from the least to the most work required to answer the question.",
+   "response": "## CANDIDATE SQL queries\n\n1. -- Primary interpretation: Calculate the percentage of all superheroes who have a 'Bad' alignment and the count of those specific 'Bad' superheroes published by 'Marvel Comics', using LEFT JOINs to ensure the total population (denominator) is preserved.\nSELECT \n  COUNT(CASE WHEN al.alignment = 'Bad' THEN 1 END) * 100.0 / COUNT(*), \n  COUNT(CASE WHEN al.alignment = 'Bad' AND p.publisher_name = 'Marvel Comics' THEN 1 END) \nFROM superhero s \nLEFT JOIN alignment al ON s.alignment_id = al.id \nLEFT JOIN publisher p ON s.publisher_id = p.id\n\n2. -- Second interpretation: Use independent subqueries in the SELECT clause to explicitly separate the calculation of the global percentage from the specific count of Marvel 'Bad' superheroes.\nSELECT \n  (SELECT COUNT(*) FROM superhero s JOIN alignment al ON s.alignment_id = al.id WHERE al.alignment = 'Bad') * 100.0 / (SELECT COUNT(*) FROM superhero), \n  (SELECT COUNT(*) FROM superhero s JOIN alignment al ON s.alignment_id = al.id JOIN publisher p ON s.publisher_id = p.id WHERE al.alignment = 'Bad' AND p.publisher_name = 'Marvel Comics')\n\n3. -- Third interpretation: Calculate the percentage relative only to superheroes who have an assigned alignment (excluding those with NULL alignment_id), while still counting the Marvel subset of 'Bad' heroes.\nSELECT \n  COUNT(CASE WHEN al.alignment = 'Bad' THEN 1 END) * 100.0 / COUNT(al.id), \n  COUNT(CASE WHEN al.alignment = 'Bad' AND p.publisher_name = 'Marvel Comics' THEN 1 END) \nFROM superhero s \nLEFT JOIN alignment al ON s.alignment_id = al.id \nLEFT JOIN publisher p ON s.publisher_id = p.id\n\n4. -- Fourth interpretation: Filter the dataset to only include 'Bad' superheroes first, then calculate their percentage against a subquery of the total population and sum those who belong to Marvel Comics.\nSELECT \n  COUNT(*) * 100.0 / (SELECT COUNT(*) FROM superhero), \n  SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) \nFROM superhero s \nJOIN alignment al ON s.alignment_id = al.id \nLEFT JOIN publisher p ON s.publisher_id = p.id \nWHERE al.alignment = 'Bad'\n\n5. -- Fifth interpretation: Use Nested Isolation by creating a derived table that computes the raw counts for total, bad, and marvel-bad superheroes, then performing the percentage division in the outer query.\nSELECT \n  (CAST(t.bad_count AS FLOAT) * 100 / t.total_count), \n  t.marvel_bad_count \nFROM (\n  SELECT \n    (SELECT COUNT(*) FROM superhero s JOIN alignment al ON s.alignment_id = al.id WHERE al.alignment = 'Bad') as bad_count, \n    (SELECT COUNT(*) FROM superhero) as total_count, \n    (SELECT COUNT(*) FROM superhero s JOIN alignment al ON s.alignment_id = al.id JOIN publisher p ON s.publisher_id = p.id WHERE al.alignment = 'Bad' AND p.publisher_name = 'Marvel Comics') as marvel_bad_count\n) t",
+   "candidates": [
+    {
+     "n": 1,
+     "comment": "Primary interpretation: Calculate the percentage of all superheroes who have a 'Bad' alignment and the count of those specific 'Bad' superheroes published by 'Marvel Comics', using LEFT JOINs to ensure the total population (denominator) is preserved.",
+     "sql": "SELECT \n  COUNT(CASE WHEN al.alignment = 'Bad' THEN 1 END) * 100.0 / COUNT(*), \n  COUNT(CASE WHEN al.alignment = 'Bad' AND p.publisher_name = 'Marvel Comics' THEN 1 END) \nFROM superhero s \nLEFT JOIN alignment al ON s.alignment_id = al.id \nLEFT JOIN publisher p ON s.publisher_id = p.id",
+     "status": "success",
+     "columns": [
+      "COUNT(CASE WHEN al.alignment = 'Bad' THEN 1 END) * 100.0 / COUNT(*)",
+      "COUNT(CASE WHEN al.alignment = 'Bad' AND p.publisher_name = 'Marvel Comics' THEN 1 END)"
+     ],
+     "rows": [
+      [
+       28.266666666666666,
+       118
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 2,
+     "comment": "Second interpretation: Use independent subqueries in the SELECT clause to explicitly separate the calculation of the global percentage from the specific count of Marvel 'Bad' superheroes.",
+     "sql": "SELECT \n  (SELECT COUNT(*) FROM superhero s JOIN alignment al ON s.alignment_id = al.id WHERE al.alignment = 'Bad') * 100.0 / (SELECT COUNT(*) FROM superhero), \n  (SELECT COUNT(*) FROM superhero s JOIN alignment al ON s.alignment_id = al.id JOIN publisher p ON s.publisher_id = p.id WHERE al.alignment = 'Bad' AND p.publisher_name = 'Marvel Comics')",
+     "status": "success",
+     "columns": [
+      "(SELECT COUNT(*) FROM superhero s JOIN alignment al ON s.alignment_id = al.id WHERE al.alignment = 'Bad') * 100.0 / (SELECT COUNT(*) FROM superhero)",
+      "(SELECT COUNT(*) FROM superhero s JOIN alignment al ON s.alignment_id = al.id JOIN publisher p ON s.publisher_id = p.id WHERE al.alignment = 'Bad' AND p.publisher_name = 'Marvel Comics')"
+     ],
+     "rows": [
+      [
+       28.266666666666666,
+       118
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 3,
+     "comment": "Third interpretation: Calculate the percentage relative only to superheroes who have an assigned alignment (excluding those with NULL alignment_id), while still counting the Marvel subset of 'Bad' heroes.",
+     "sql": "SELECT \n  COUNT(CASE WHEN al.alignment = 'Bad' THEN 1 END) * 100.0 / COUNT(al.id), \n  COUNT(CASE WHEN al.alignment = 'Bad' AND p.publisher_name = 'Marvel Comics' THEN 1 END) \nFROM superhero s \nLEFT JOIN alignment al ON s.alignment_id = al.id \nLEFT JOIN publisher p ON s.publisher_id = p.id",
+     "status": "success",
+     "columns": [
+      "COUNT(CASE WHEN al.alignment = 'Bad' THEN 1 END) * 100.0 / COUNT(al.id)",
+      "COUNT(CASE WHEN al.alignment = 'Bad' AND p.publisher_name = 'Marvel Comics' THEN 1 END)"
+     ],
+     "rows": [
+      [
+       28.49462365591398,
+       118
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 4,
+     "comment": "Fourth interpretation: Filter the dataset to only include 'Bad' superheroes first, then calculate their percentage against a subquery of the total population and sum those who belong to Marvel Comics.",
+     "sql": "SELECT \n  COUNT(*) * 100.0 / (SELECT COUNT(*) FROM superhero), \n  SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) \nFROM superhero s \nJOIN alignment al ON s.alignment_id = al.id \nLEFT JOIN publisher p ON s.publisher_id = p.id \nWHERE al.alignment = 'Bad'",
+     "status": "success",
+     "columns": [
+      "COUNT(*) * 100.0 / (SELECT COUNT(*) FROM superhero)",
+      "SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END)"
+     ],
+     "rows": [
+      [
+       28.266666666666666,
+       118
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 5,
+     "comment": "Fifth interpretation: Use Nested Isolation by creating a derived table that computes the raw counts for total, bad, and marvel-bad superheroes, then performing the percentage division in the outer query.",
+     "sql": "SELECT \n  (CAST(t.bad_count AS FLOAT) * 100 / t.total_count), \n  t.marvel_bad_count \nFROM (\n  SELECT \n    (SELECT COUNT(*) FROM superhero s JOIN alignment al ON s.alignment_id = al.id WHERE al.alignment = 'Bad') as bad_count, \n    (SELECT COUNT(*) FROM superhero) as total_count, \n    (SELECT COUNT(*) FROM superhero s JOIN alignment al ON s.alignment_id = al.id JOIN publisher p ON s.publisher_id = p.id WHERE al.alignment = 'Bad' AND p.publisher_name = 'Marvel Comics') as marvel_bad_count\n) t",
+     "status": "success",
+     "columns": [
+      "(CAST(t.bad_count AS FLOAT) * 100 / t.total_count)",
+      "marvel_bad_count"
+     ],
+     "rows": [
+      [
+       28.266666666666666,
+       118
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    }
+   ],
+   "chosen": 1,
+   "gold_result": {
+    "columns": [
+     "(CAST(COUNT(*) AS REAL) * 100 / (SELECT COUNT(*) FROM superhero))",
+     "CAST(SUM(CASE WHEN T2.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) AS REAL)"
+    ],
+    "rows": [
+     [
+      28.266666666666666,
+      118.0
+     ]
+    ],
+    "row_count": 1
+   }
+  }
+ },
+ "elapsed_s": 631.3,
+ "difficulty": "challenging",
+ "single_shot_model": "google/gemma-4-31b",
+ "single_shot": {
+  "no_evidence": {
+   "include_evidence": false,
+   "system_prompt": "You are an expert data analyst who writes SQLite queries. Given a database schema and a question, write ONE SQLite SELECT query that answers it. Use only tables and columns that appear in the schema. Output the query and nothing else — no explanation, no markdown fences.",
+   "user_prompt": "Schema:\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nQuestion: What is the percentage of superheroes who act in their own self-interest or make decisions based on their own moral code? Indicate how many of the said superheroes were published by Marvel Comics.\n\nWrite the SQLite query:",
+   "sql": "SELECT 100.0 * COUNT(CASE WHEN T2.alignment = 'Neutral' THEN 1 END) / COUNT(*), COUNT(CASE WHEN T2.alignment = 'Neutral' AND T3.publisher_name = 'Marvel Comics' THEN 1 END) FROM superhero AS T1 JOIN alignment AS T2 ON T1.alignment_id = T2.id JOIN publisher AS T3 ON T1.publisher_id = T3.id",
+   "status": "success",
+   "columns": [
+    "100.0 * COUNT(CASE WHEN T2.alignment = 'Neutral' THEN 1 END) / COUNT(*)",
+    "COUNT(CASE WHEN T2.alignment = 'Neutral' AND T3.publisher_name = 'Marvel Comics' THEN 1 END)"
+   ],
+   "rows": [
+    [
+     3.7786774628879893,
+     10
+    ]
+   ],
+   "row_count": 1,
+   "truncated": false,
+   "error": null,
+   "matches_gold": false
+  },
+  "with_evidence": {
+   "include_evidence": true,
+   "system_prompt": "You are an expert data analyst who writes SQLite queries. Given a database schema and a question, write ONE SQLite SELECT query that answers it. Use only tables and columns that appear in the schema. Output the query and nothing else — no explanation, no markdown fences.",
+   "user_prompt": "Schema:\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nQuestion: What is the percentage of superheroes who act in their own self-interest or make decisions based on their own moral code? Indicate how many of the said superheroes were published by Marvel Comics.\nHint: published by Marvel Comics refers to publisher_name = 'Marvel Comics'; superheroes who act in their own self-interest or make decisions based on their own moral code refers to alignment = 'Bad'; calculation = MULTIPLY(DIVIDE(SUM(alignment = 'Bad); count(id)), 100)\n\nWrite the SQLite query:",
+   "sql": "SELECT 100.0 * SUM(T2.alignment = 'Bad') / COUNT(*), SUM(T2.alignment = 'Bad' AND T3.publisher_name = 'Marvel Comics') FROM superhero AS T1 JOIN alignment AS T2 ON T1.alignment_id = T2.id JOIN publisher AS T3 ON T1.publisher_id = T3.id",
+   "status": "success",
+   "columns": [
+    "100.0 * SUM(T2.alignment = 'Bad') / COUNT(*)",
+    "SUM(T2.alignment = 'Bad' AND T3.publisher_name = 'Marvel Comics')"
+   ],
+   "rows": [
+    [
+     28.60998650472335,
+     118
+    ]
+   ],
+   "row_count": 1,
+   "truncated": false,
+   "error": null,
+   "matches_gold": false
+  }
+ },
+ "stages_noev": {
+  "stage1": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Today is your first day at a new company.\n\nNormally this work takes three days. You do not have three days. You have to do it all today.\n\nHere is how you think through a new client question:\n\nPHASE 1 — Before you look at anything:\nYou read the question and evidence first, with the schema face-down. You write out every question\nyou would want answered and every assumption you are making. You are a philosopher — you think in\nwho, what, when, where, by whom, for whom. You think in counter-proofs. What would make an\nassumption wrong? What encoding or edge case breaks the obvious reading? Stating a wrong assumption\nexplicitly is more honest and useful than a vague non-answer.\n\nPHASE 2 — You look at the schema:\nThe data dictionary arrives: table names, column names, types, primary keys, and foreign key\nrelationships. You do NOT get statistics — no min, max, null counts, or sample values. That is\nwhat Phase 3 is for. Some of your Phase 1 assumptions will be confirmed. Some will be wrong. Some\nnew questions will appear that you could not have thought of without seeing the actual column names.\nYou update every assumption. You tag each question.\n\nPHASE 3 — You write exploratory SQL:\nYou have database access. You are excited and thorough. You know that being new means you earn trust\nby being rigorous, not reckless. You have two phases of thinking behind you — now you turn that into\nexploratory SQL. Write at least 15 queries. The system will reject outputs with fewer than 5 —\nthose records will be skipped entirely and the question will not advance to the next stage.\n\nYou have six proof obligations:\n\n1. EXISTENCE LEMMA (DISTINCT probes):\n   For every categorical column you plan to filter on, run SELECT DISTINCT col FROM table LIMIT 20.\n   This is a direct proof of existence — it proves which values actually live in the database.\n   Without this proof, any filter using that column is an ungrounded conjecture. The system will\n   treat unproven filter values as errors in Stage 2.\n\n2. CONNECTIVITY LEMMA (join verification):\n   Before writing any multi-table JOIN, prove the join path works. Run a query on each side of the\n   join key: SELECT DISTINCT join_col FROM table_a LIMIT 5 and SELECT DISTINCT join_col FROM table_b\n   LIMIT 5. If both return values and they overlap, the join is proven. If either returns zero rows\n   or different types, the join is disproven — do not use it.\n\n3. AXIOMATIC NEUTRALITY (contrapositive for filters):\n   Do not add status, active/inactive, or any other filter unless the question explicitly mentions\n   it. Assume the contrapositive: if the question does not mention a constraint, its absence is\n   correct until you prove otherwise. Run at least one query WITHOUT any assumed filter to establish\n   the unfiltered baseline.\n\n4. COLUMN SUITABILITY PROOFS (null-count & scope):\n   Before using any column for aggregation (COUNT, AVG, SUM, MAX, MIN), run a null-count query:\n   SELECT COUNT(*) - COUNT(col) as nulls, COUNT(*) as total FROM table.\n   If nulls exceed 50% of total, that column is statistically unsuitable as a primary metric —\n   look for alternatives. After identifying your primary filter value, run TWO scope queries:\n   (a) one query WITHOUT the filter — note the total row count (unfiltered universe).\n   (b) one query WITH the filter — note the filtered row count.\n   Compare: if filtered count equals unfiltered count, the filter is a no-op and likely wrong.\n   If filtered count is zero, the value does not exist. Both indicate a scope mismatch.\n\n5. ANNOTATION LEMMA (semantic mapping of opaque columns):\n   If the schema contains column names that are short codes, single letters, abbreviations, or\n   numeric identifiers (e.g., col1, X, stat, code_a), you cannot assume their meaning from the\n   name alone. For every such opaque column that could be relevant to the question, run:\n   SELECT DISTINCT col FROM table LIMIT 20\n   Then annotate each with its apparent meaning based on the values returned. Format your comment:\n   \"ANNOTATION LEMMA: col_name appears to be [description] (values: val1, val2, val3)\"\n   This is a direct proof of semantic identity — without it, any use of an opaque column is an\n   ungrounded assumption about what the column contains.\n\n6. JOIN VERIFICATION (non-key joins):\n   The schema marks primary keys [PK] and foreign keys [FK]. If you plan to join two tables on\n   a column that is NOT marked as a PK or FK, you must prove the join is valid by querying both\n   sides: SELECT DISTINCT col FROM table_a LIMIT 5 and SELECT DISTINCT col FROM table_b LIMIT 5.\n   If the values do not overlap, the join is invalid. PK/FK joins are pre-verified by the schema.\n\nAdditional rules:\n- Multi-part question decomposition: Before writing any Phase 1 assumptions, read the\n  question and ask: does it contain multiple distinct sub-questions? A multi-part question\n  typically uses connectors like \"and\", \"also\", \"as well as\", or asks for two different\n  pieces of information in one sentence (e.g. \"What is X? What is Y for Z?\"). If yes,\n  list each sub-question separately in Phase 1 and treat them as independent proof obligations.\n  Your Phase 3 queries must cover every part — a query that only answers one part of a\n  multi-part question is incomplete. The final SQL must return all parts in a single query\n  (using JOIN, subquery, or multiple SELECT expressions as appropriate).\n- Cover all tables that could relate to the question, not just the most obvious one.\n- SELECT only the columns needed for each specific check — no extra \"context\" columns.\n- Identifier Precision: Determine whether the question asks for a primary identifier\n  (ID, code, number) or a descriptive label (name, title, description). If both columns exist\n  side by side in the same table, run a DISTINCT query on each. Your Phase 1 assumptions must\n  explicitly state which column type the question wants. This prevents the Director from\n  guessing at the SELECT column later.\n- Each query has exactly one SQL comment (-- ...) that is a single complete sentence explaining\n  why this specific piece of information matters for answering the client question.\n- Always use LIMIT. Check both heads and tails for any table you are uncertain about.\n- Do NOT write the final answer query — that comes after you see what these return.\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\nA numbered list. For each item: state the question, then immediately state your current assumption.\nAssumptions can be wrong — that is expected and useful.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, explaining why these are the\nright questions to ask.\n\n## PHASE 2 — SCHEMA REVIEW\nA numbered list. For each item from Phase 1, mark it with exactly one tag:\n  [CONFIRMED] — the profile supports your Phase 1 assumption\n  [REVISED]   — you need to update your assumption based on what you see\n  [NEW]       — a question that did not exist in Phase 1, raised by the schema or statistics\n  [DROPPED]   — this question is no longer relevant given what the profile shows\n\nAfter the tag, give a brief one-sentence reason.\n\nThen a REASONING block: exactly 5 lines, each a complete sentence, describing what the profile\nrevealed and what still requires direct database investigation.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\nA numbered list of SQL queries. Minimum 15 queries.\n\nSQLite rules — this is non-negotiable:\n- The database engine is SQLite. Write only SQL that SQLite supports.\n- Column names that contain spaces, parentheses, or special characters MUST be\n  wrapped in double quotes. Example: \"County Name\", \"Free Meal Count (K-12)\".\n  Never write an unquoted column name that contains a space.\n- Do not use window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.).\n- Always use LIMIT.\n- Do NOT write the final answer query.\n\nOutput format for Phase 3 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- EXISTENCE PROOF: Confirm what distinct values exist in the department_type column.\n   SELECT DISTINCT department_type FROM departments LIMIT 20;\n\n2. -- SCOPE CHECK: Establish the time range covered by the data.\n   SELECT MIN(hire_date), MAX(hire_date) FROM employees LIMIT 1;\n\n3. -- NULL-COUNT PROOF: Verify salary column suitability for aggregation.\n   SELECT COUNT(*) - COUNT(salary) as nulls, COUNT(*) as total FROM employees LIMIT 1;\n\n4. -- CONNECTIVITY LEMMA: Verify join key overlap between employees and departments.\n   SELECT DISTINCT department_id FROM employees LIMIT 5;\n\n5. -- CONNECTIVITY LEMMA: Other side of the join.\n   SELECT DISTINCT id FROM departments LIMIT 5;\n\n6. -- ANNOTATION LEMMA: Determine what opaque column 'dept_code' actually contains.\n   SELECT DISTINCT dept_code FROM departments LIMIT 20;\n\n7. -- JOIN VERIFICATION: Verify non-key join between employees.role and roles.role_name.\n   SELECT DISTINCT role FROM employees LIMIT 5;\n\n8. -- SCOPE PROOF: Unfiltered universe count for the target table.\n   SELECT COUNT(*) FROM employees LIMIT 1;\n\n9. -- SCOPE PROOF: Filtered count — verify filter narrows to expected scope.\n   SELECT COUNT(*) FROM employees WHERE department_type = 'Engineering' LIMIT 1;",
+   "user_prompt": "A new client question just arrived on your desk.\n\nQuestion: What is the percentage of superheroes who act in their own self-interest or make decisions based on their own moral code? Indicate how many of the said superheroes were published by Marvel Comics.\n\nDatabase: superhero\n\nSchema (table names, column names, types, primary keys, foreign keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\nWork through all three phases now.",
+   "response": "## PHASE 1 — INITIAL QUESTIONS & ASSUMPTIONS\n\n1. Does the phrase \"act in their own self-interest or make decisions based on their own moral code\" map to a single value in the alignment table? Assumption: This description refers to a specific categorical value, likely 'Neutral'.\n2. Is the publisher exactly named \"Marvel Comics\"? Assumption: The string in the database is exactly 'Marvel Comics'.\n3. Does the request for \"percentage\" imply the count of these specific heroes divided by the total population of superheroes? Assumption: Percentage = (Target Alignment Count / Total Superhero Count) * 100.\n4. Are we counting unique superhero IDs or distinct names? Assumption: The primary identifier is the `id` column in the `superhero` table.\n5. Does every superhero record have an associated alignment and publisher? Assumption: There may be NULL values for `alignment_id` or `publisher_id`, which would affect the denominator of the percentage calculation.\n\nREASONING:\nThe core of the request relies on mapping a natural language description to a database value.\nI must verify if \"self-interest\" is a literal string or a semantic description of a category like 'Neutral'.\nThe publisher name must be verified to avoid missing records due to variations like 'Marvel' vs 'Marvel Comics'.\nCalculating percentages requires a stable denominator, necessitating a check for nulls in the foreign key columns.\nSince this is a multi-part question, I must ensure both the global percentage and the Marvel-specific count are isolated before final aggregation.\n\n## PHASE 2 — SCHEMA REVIEW\n\n1. [REVISED] The `alignment` table has a column named `alignment`. I need to check if the description \"act in their own self-interest...\" is the actual text in that column or if it describes a value like 'Neutral'.\n2. [CONFIRMED] The `publisher` table contains `publisher_name`, which is where I will look for 'Marvel Comics'.\n3. [CONFIRMED] The `superhero` table acts as the central fact table, linking to both alignment and publisher via foreign keys.\n4. [CONFIRMED] The primary identifier for superheroes is the `id` column in the `superhero` table.\n5. [NEW] I need to verify if there are any \"opaque\" identifiers in the `alignment` or `publisher` tables that might be used instead of names, though the schema suggests text columns exist.\n\nREASONING:\nThe schema confirms a standard star-like structure with `superhero` at the center.\nJoin paths are clearly defined via `alignment_id` and `publisher_id`.\nI have confirmed that I can filter by name/label rather than just ID, provided the strings match.\nThe main risk remains the semantic mapping of the \"self-interest\" alignment description to a specific row in the `alignment` table.\nNull counts for the foreign keys are now a priority to ensure the percentage calculation is mathematically sound.\n\n## PHASE 3 — EXPLORATORY SQL QUERIES\n\n1. -- EXISTENCE LEMMA: Identify all possible alignment values to find which one matches \"self-interest or own moral code\".\n   SELECT DISTINCT alignment FROM alignment LIMIT 20;\n\n2. -- EXISTENCE LEMMA: Confirm the exact string used for Marvel Comics in the publisher table.\n   SELECT DISTINCT publisher_name FROM publisher LIMIT 20;\n\n3. -- AXIOMATIC NEUTRALITY: Establish the total baseline count of all superheroes without any filters.\n   SELECT COUNT(*) FROM superhero LIMIT 1;\n\n4. -- COLUMN SUITABILITY PROOF: Check for nulls in alignment_id to see if some heroes lack an alignment.\n   SELECT COUNT(*) - COUNT(alignment_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n5. -- COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to see if some heroes lack a publisher.\n   SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1;\n\n6. -- CONNECTIVITY LEMMA: Verify the join path from superhero to alignment by checking sample IDs on the hero side.\n   SELECT DISTINCT alignment_id FROM superhero LIMIT 5;\n\n7. -- CONNECTIVITY LEMMA: Verify the join path from superhero to alignment by checking sample IDs on the alignment side.\n   SELECT DISTINCT id FROM alignment LIMIT 5;\n\n8. -- CONNECTIVITY LEMMA: Verify the join path from superhero to publisher by checking sample IDs on the hero side.\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5;\n\n9. -- CONNECTIVITY LEMMA: Verify the join path from superhero to publisher by checking sample IDs on the publisher side.\n   SELECT DISTINCT id FROM publisher LIMIT 5;\n\n10. -- SCOPE PROOF: Count superheroes filtered by the likely \"Neutral\" alignment (assuming 'Neutral' is the value found in query 1).\n    SELECT COUNT(*) FROM superhero WHERE alignment_id = (SELECT id FROM alignment WHERE alignment = 'Neutral') LIMIT 1;\n\n11. -- SCOPE PROOF: Count superheroes published by Marvel Comics to ensure the filter is not a no-op.\n    SELECT COUNT(*) FROM superhero WHERE publisher_id = (SELECT id FROM publisher WHERE publisher_name = 'Marvel Comics') LIMIT 1;\n\n12. -- SCOPE PROOF: Verify if any heroes have both the target alignment and are published by Marvel.\n    SELECT COUNT(*) FROM superhero WHERE alignment_id = (SELECT id FROM alignment WHERE alignment = 'Neutral') AND publisher_id = (SELECT id FROM publisher WHERE publisher_name = 'Marvel Comics') LIMIT 1;\n\n13. -- ANNOTATION LEMMA: Check if there are any other columns in the alignment table that might provide more detail on \"self-interest\".\n    SELECT * FROM alignment LIMIT 20;\n\n14. -- JOIN VERIFICATION: Ensure no duplicate superhero IDs exist that would inflate counts during joins.\n    SELECT COUNT(id), COUNT(DISTINCT id) FROM superhero LIMIT 1;\n\n15. -- SCOPE CHECK: Check the distribution of publishers to see if Marvel is split across multiple entries (e.g., 'Marvel', 'Marvel Comics').\n    SELECT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel%' LIMIT 20;",
+   "phase1": "1. Does the phrase \"act in their own self-interest or make decisions based on their own moral code\" map to a single value in the alignment table? Assumption: This description refers to a specific categorical value, likely 'Neutral'.\n2. Is the publisher exactly named \"Marvel Comics\"? Assumption: The string in the database is exactly 'Marvel Comics'.\n3. Does the request for \"percentage\" imply the count of these specific heroes divided by the total population of superheroes? Assumption: Percentage = (Target Alignment Count / Total Superhero Count) * 100.\n4. Are we counting unique superhero IDs or distinct names? Assumption: The primary identifier is the `id` column in the `superhero` table.\n5. Does every superhero record have an associated alignment and publisher? Assumption: There may be NULL values for `alignment_id` or `publisher_id`, which would affect the denominator of the percentage calculation.\n\nREASONING:\nThe core of the request relies on mapping a natural language description to a database value.\nI must verify if \"self-interest\" is a literal string or a semantic description of a category like 'Neutral'.\nThe publisher name must be verified to avoid missing records due to variations like 'Marvel' vs 'Marvel Comics'.\nCalculating percentages requires a stable denominator, necessitating a check for nulls in the foreign key columns.\nSince this is a multi-part question, I must ensure both the global percentage and the Marvel-specific count are isolated before final aggregation.",
+   "phase2": "1. [REVISED] The `alignment` table has a column named `alignment`. I need to check if the description \"act in their own self-interest...\" is the actual text in that column or if it describes a value like 'Neutral'.\n2. [CONFIRMED] The `publisher` table contains `publisher_name`, which is where I will look for 'Marvel Comics'.\n3. [CONFIRMED] The `superhero` table acts as the central fact table, linking to both alignment and publisher via foreign keys.\n4. [CONFIRMED] The primary identifier for superheroes is the `id` column in the `superhero` table.\n5. [NEW] I need to verify if there are any \"opaque\" identifiers in the `alignment` or `publisher` tables that might be used instead of names, though the schema suggests text columns exist.\n\nREASONING:\nThe schema confirms a standard star-like structure with `superhero` at the center.\nJoin paths are clearly defined via `alignment_id` and `publisher_id`.\nI have confirmed that I can filter by name/label rather than just ID, provided the strings match.\nThe main risk remains the semantic mapping of the \"self-interest\" alignment description to a specific row in the `alignment` table.\nNull counts for the foreign keys are now a priority to ensure the percentage calculation is mathematically sound.",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "EXISTENCE LEMMA: Identify all possible alignment values to find which one matches \"self-interest or own moral code\".",
+     "sql": "SELECT DISTINCT alignment FROM alignment LIMIT 20",
+     "status": "success",
+     "columns": [
+      "alignment"
+     ],
+     "head": [
+      [
+       "Good"
+      ],
+      [
+       "Bad"
+      ],
+      [
+       "Neutral"
+      ],
+      [
+       "N/A"
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "EXISTENCE LEMMA: Confirm the exact string used for Marvel Comics in the publisher table.",
+     "sql": "SELECT DISTINCT publisher_name FROM publisher LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       ""
+      ],
+      [
+       "ABC Studios"
+      ],
+      [
+       "Dark Horse Comics"
+      ],
+      [
+       "DC Comics"
+      ],
+      [
+       "George Lucas"
+      ]
+     ],
+     "row_count": 20,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "AXIOMATIC NEUTRALITY: Establish the total baseline count of all superheroes without any filters.",
+     "sql": "SELECT COUNT(*) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in alignment_id to see if some heroes lack an alignment.",
+     "sql": "SELECT COUNT(*) - COUNT(alignment_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       6,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to see if some heroes lack a publisher.",
+     "sql": "SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "nulls",
+      "total"
+     ],
+     "head": [
+      [
+       3,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "CONNECTIVITY LEMMA: Verify the join path from superhero to alignment by checking sample IDs on the hero side.",
+     "sql": "SELECT DISTINCT alignment_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "alignment_id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       null
+      ],
+      [
+       3
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "CONNECTIVITY LEMMA: Verify the join path from superhero to alignment by checking sample IDs on the alignment side.",
+     "sql": "SELECT DISTINCT id FROM alignment LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "CONNECTIVITY LEMMA: Verify the join path from superhero to publisher by checking sample IDs on the hero side.",
+     "sql": "SELECT DISTINCT publisher_id FROM superhero LIMIT 5",
+     "status": "success",
+     "columns": [
+      "publisher_id"
+     ],
+     "head": [
+      [
+       13
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       15
+      ],
+      [
+       25
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "CONNECTIVITY LEMMA: Verify the join path from superhero to publisher by checking sample IDs on the publisher side.",
+     "sql": "SELECT DISTINCT id FROM publisher LIMIT 5",
+     "status": "success",
+     "columns": [
+      "id"
+     ],
+     "head": [
+      [
+       1
+      ],
+      [
+       2
+      ],
+      [
+       3
+      ],
+      [
+       4
+      ],
+      [
+       5
+      ]
+     ],
+     "row_count": 5,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "SCOPE PROOF: Count superheroes filtered by the likely \"Neutral\" alignment (assuming 'Neutral' is the value found in query 1).",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE alignment_id = (SELECT id FROM alignment WHERE alignment = 'Neutral') LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       28
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "SCOPE PROOF: Count superheroes published by Marvel Comics to ensure the filter is not a no-op.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id = (SELECT id FROM publisher WHERE publisher_name = 'Marvel Comics') LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       387
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "SCOPE PROOF: Verify if any heroes have both the target alignment and are published by Marvel.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE alignment_id = (SELECT id FROM alignment WHERE alignment = 'Neutral') AND publisher_id = (SELECT id FROM publisher WHERE publisher_name = 'Marvel Comics') LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       10
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "ANNOTATION LEMMA: Check if there are any other columns in the alignment table that might provide more detail on \"self-interest\".",
+     "sql": "SELECT * FROM alignment LIMIT 20",
+     "status": "success",
+     "columns": [
+      "id",
+      "alignment"
+     ],
+     "head": [
+      [
+       1,
+       "Good"
+      ],
+      [
+       2,
+       "Bad"
+      ],
+      [
+       3,
+       "Neutral"
+      ],
+      [
+       4,
+       "N/A"
+      ]
+     ],
+     "row_count": 4,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "JOIN VERIFICATION: Ensure no duplicate superhero IDs exist that would inflate counts during joins.",
+     "sql": "SELECT COUNT(id), COUNT(DISTINCT id) FROM superhero LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(id)",
+      "COUNT(DISTINCT id)"
+     ],
+     "head": [
+      [
+       750,
+       750
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "SCOPE CHECK: Check the distribution of publishers to see if Marvel is split across multiple entries (e.g., 'Marvel', 'Marvel Comics').",
+     "sql": "SELECT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [
+      [
+       "Marvel Comics"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage2": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "You are Alex, a junior analyst. Yesterday you worked through a client question in three phases:\nPhase 1 — questions and assumptions written before seeing the schema.\nPhase 2 — schema review, assumptions updated against column profiles.\nPhase 3 — exploratory SQL queries written to investigate the data.\n\nNow the queries have run. You have the results in front of you.\n\nYour job today is three phases:\n\nPHASE 4 — REVISED ASSUMPTIONS\nGo through every assumption you made in Phases 1 and 2. For each one, state what the query results show.\nTag each item with exactly one of:\n  [CONFIRMED]    — a PASSED query directly proves this assumption. Cite the query number.\n  [REVISED]      — results partially support but require adjustment. State what changed and why.\n  [CONTRADICTED] — a query returned zero rows, an error, or unexpected data that disproves this\n                   hypothesis. This is not a failure — it is a proof by contradiction. State clearly\n                   what was disproven and what it implies.\n  [OPEN-VALUE]   — an assumption involves a string filter value that was NEVER confirmed with a\n                   SELECT DISTINCT query. This is an open conjecture — the Director cannot use it.\n                   Phase 5 MUST include a DISTINCT query to resolve it.\n  [WRONG-TABLE]  — query results suggest the data does not live in the assumed table (column doesn't\n                   exist, zero rows where many were expected, data type mismatch). The hypothesis\n                   about which table to use is disproven. Phase 5 must explore the alternative.\n  [LIKE-VS-ENUM] — the analyst used LIKE or a substring match on a name/description column, but\n                   the schema may contain a separate coded or enum column for the same concept\n                   (e.g., filtering by name string when a type_code column exists). Phase 5 MUST\n                   include a DISTINCT query on the potential enum column to check if it provides\n                   a cleaner, exact-match filter.\n\nAfter the tag, write one sentence citing which query result led to this conclusion.\n\nContrapositive test for filters: For each filter in your hypothesis, apply the contrapositive test:\n\"If the question does not explicitly mention this constraint, then it should NOT appear in the WHERE\nclause.\" If Stage 1 added a filter that the question never asked for (e.g. a status filter, an\nactive/inactive check), tag it [CONTRADICTED] with reason: \"contrapositive — question does not\nmention this constraint.\"\n\nPHASE 4b — HYPOTHESIS REVIEW\nWrite a short paragraph (3–5 sentences) answering:\n  1. Does your original hypothesis about how to answer this question still hold?\n     State clearly: YES it holds, NO it needs to change, or PARTIALLY — explain what changed.\n  2. Did the query results reveal anything you did not expect? If so, what?\n  3. What is your updated hypothesis for the final SQL approach?\n\nYour updated hypothesis must name:\n  - The exact table name(s) as they appear in the schema\n  - The exact column name(s) — quoted if they contain spaces\n  - The exact confirmed string value (if a filter is needed) — proven by a DISTINCT query\n  - The exact join path (if tables must be joined) — proven by connectivity lemma queries\n  Vague hypotheses like \"filter by type\" or \"join on the ID column\" are rejected.\n  If any piece is uncertain, tag it [OPEN-VALUE] and resolve it in Phase 5.\n\nPHASE 5 — CONFIRMATION QUERIES\nWrite at least 15 new SQL queries. The system will reject outputs with fewer than 5 — those records\nwill be skipped entirely. These are not exploratory — they are targeted at the gaps, surprises, and\nrevised assumptions from Phases 4 and 4b.\n\nMandatory resolution: Every [OPEN-VALUE] and [WRONG-TABLE] from Phase 4 MUST have a corresponding\nresolution query in Phase 5. An unresolved conjecture is a gap that the Director will fill with\nguesswork — and guesswork is how we get wrong answers.\n  - For [OPEN-VALUE]: run SELECT DISTINCT col FROM table LIMIT 20 to prove the exact value.\n  - For [WRONG-TABLE]: run exploratory queries against the alternative table.\n  - For [LIKE-VS-ENUM]: run SELECT DISTINCT enum_col FROM table LIMIT 20. If the enum column\n    provides exact values that match the question's intent, recommend it over the LIKE filter\n    in your Phase 4b hypothesis update.\n\nDo not repeat queries from Phase 3. Each query must address something new.\n\nSQLite rules — same as before, non-negotiable:\n- Column names with spaces or special characters MUST be double-quoted: \"County Name\"\n- No window functions (RANK, ROW_NUMBER, NTILE, LAG, LEAD, etc.)\n- Always use LIMIT\n- Do NOT write the final answer query\n\nOutput format for Phase 5 — plain text only:\n- No markdown bold (**text**), no headers, no code fences (```).\n- Each item: one -- comment line, then the SQL on the following lines. Nothing else.\n\nExample of correct format:\n1. -- RESOLVE [OPEN-VALUE]: Prove what distinct values exist in order_status.\n   SELECT DISTINCT order_status FROM orders LIMIT 20;\n\n2. -- RESOLVE [WRONG-TABLE]: Check if revenue data lives in invoices instead of orders.\n   SELECT COUNT(*), MIN(total), MAX(total) FROM invoices LIMIT 1;\n\n3. -- CONTRAPOSITIVE TEST: Verify results without the assumed 'active' filter.\n   SELECT COUNT(*) FROM customers LIMIT 1;\n\n4. -- RESOLVE [LIKE-VS-ENUM]: Check if department_code is a cleaner filter than department_name.\n   SELECT DISTINCT department_code, department_name FROM departments LIMIT 20;\n\nOutput format — produce exactly three sections, in order:\n\n## PHASE 4 — REVISED ASSUMPTIONS\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\n## PHASE 5 — CONFIRMATION QUERIES",
+   "user_prompt": "The query results are in. Time to review.\n\nQuestion: What is the percentage of superheroes who act in their own self-interest or make decisions based on their own moral code? Indicate how many of the said superheroes were published by Marvel Comics.\n\nDatabase: superhero\n\nSchema (same as before — table names, column names, types, join keys):\n\nTABLE: alignment\n  id                               integer       [PK]\n  alignment                        text      \n\nTABLE: attribute\n  id                               integer       [PK]\n  attribute_name                   text      \n\nTABLE: colour\n  id                               integer       [PK]\n  colour                           text      \n\nTABLE: gender\n  id                               integer       [PK]\n  gender                           text      \n\nTABLE: publisher\n  id                               integer       [PK]\n  publisher_name                   text      \n\nTABLE: race\n  id                               integer       [PK]\n  race                             text      \n\nTABLE: superhero\n  id                               integer       [PK]\n  superhero_name                   text      \n  full_name                        text      \n  gender_id                        integer       [FK → gender.id]\n  eye_colour_id                    integer       [FK → colour.id]\n  hair_colour_id                   integer       [FK → colour.id]\n  skin_colour_id                   integer       [FK → colour.id]\n  race_id                          integer       [FK → race.id]\n  publisher_id                     integer       [FK → publisher.id]\n  alignment_id                     integer       [FK → alignment.id]\n  height_cm                        integer   \n  weight_kg                        integer   \n\nTABLE: hero_attribute\n  hero_id                          integer       [FK → superhero.id]\n  attribute_id                     integer       [FK → attribute.id]\n  attribute_value                  integer   \n\nTABLE: superpower\n  id                               integer       [PK]\n  power_name                       text      \n\nTABLE: hero_power\n  hero_id                          integer       [FK → superhero.id]\n  power_id                         integer       [FK → superpower.id]\n\n\n---\n\nYour Phase 1 — Two Semantic Hypotheses:\n\n1. Does the phrase \"act in their own self-interest or make decisions based on their own moral code\" map to a single value in the alignment table? Assumption: This description refers to a specific categorical value, likely 'Neutral'.\n2. Is the publisher exactly named \"Marvel Comics\"? Assumption: The string in the database is exactly 'Marvel Comics'.\n3. Does the request for \"percentage\" imply the count of these specific heroes divided by the total population of superheroes? Assumption: Percentage = (Target Alignment Count / Total Superhero Count) * 100.\n4. Are we counting unique superhero IDs or distinct names? Assumption: The primary identifier is the `id` column in the `superhero` table.\n5. Does every superhero record have an associated alignment and publisher? Assumption: There may be NULL values for `alignment_id` or `publisher_id`, which would affect the denominator of the percentage calculation.\n\nREASONING:\nThe core of the request relies on mapping a natural language description to a database value.\nI must verify if \"self-interest\" is a literal string or a semantic description of a category like 'Neutral'.\nThe publisher name must be verified to avoid missing records due to variations like 'Marvel' vs 'Marvel Comics'.\nCalculating percentages requires a stable denominator, necessitating a check for nulls in the foreign key columns.\nSince this is a multi-part question, I must ensure both the global percentage and the Marvel-specific count are isolated before final aggregation.\n\n---\n\nYour Phase 2 — Schema Deep Dive:\n\n1. [REVISED] The `alignment` table has a column named `alignment`. I need to check if the description \"act in their own self-interest...\" is the actual text in that column or if it describes a value like 'Neutral'.\n2. [CONFIRMED] The `publisher` table contains `publisher_name`, which is where I will look for 'Marvel Comics'.\n3. [CONFIRMED] The `superhero` table acts as the central fact table, linking to both alignment and publisher via foreign keys.\n4. [CONFIRMED] The primary identifier for superheroes is the `id` column in the `superhero` table.\n5. [NEW] I need to verify if there are any \"opaque\" identifiers in the `alignment` or `publisher` tables that might be used instead of names, though the schema suggests text columns exist.\n\nREASONING:\nThe schema confirms a standard star-like structure with `superhero` at the center.\nJoin paths are clearly defined via `alignment_id` and `publisher_id`.\nI have confirmed that I can filter by name/label rather than just ID, provided the strings match.\nThe main risk remains the semantic mapping of the \"self-interest\" alignment description to a specific row in the `alignment` table.\nNull counts for the foreign keys are now a priority to ensure the percentage calculation is mathematically sound.\n\n---\n\nPhase 3 — Exploratory Query Results:\n\n1. -- EXISTENCE LEMMA: Identify all possible alignment values to find which one matches \"self-interest or own moral code\".\n   SELECT DISTINCT alignment FROM alignment LIMIT 20\n   Columns: alignment\n   ['Good']\n   ['Bad']\n   ['Neutral']\n   ... (4 rows total)\n\n2. -- EXISTENCE LEMMA: Confirm the exact string used for Marvel Comics in the publisher table.\n   SELECT DISTINCT publisher_name FROM publisher LIMIT 20\n   Columns: publisher_name\n   ['']\n   ['ABC Studios']\n   ['Dark Horse Comics']\n   ... (20 rows total)\n\n3. -- AXIOMATIC NEUTRALITY: Establish the total baseline count of all superheroes without any filters.\n   SELECT COUNT(*) FROM superhero LIMIT 1\n   Columns: COUNT(*)\n   [750]\n\n4. -- COLUMN SUITABILITY PROOF: Check for nulls in alignment_id to see if some heroes lack an alignment.\n   SELECT COUNT(*) - COUNT(alignment_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [6, 750]\n\n5. -- COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to see if some heroes lack a publisher.\n   SELECT COUNT(*) - COUNT(publisher_id) as nulls, COUNT(*) as total FROM superhero LIMIT 1\n   Columns: nulls, total\n   [3, 750]\n\n6. -- CONNECTIVITY LEMMA: Verify the join path from superhero to alignment by checking sample IDs on the hero side.\n   SELECT DISTINCT alignment_id FROM superhero LIMIT 5\n   Columns: alignment_id\n   [1]\n   [2]\n   [None]\n   ... (4 rows total)\n\n7. -- CONNECTIVITY LEMMA: Verify the join path from superhero to alignment by checking sample IDs on the alignment side.\n   SELECT DISTINCT id FROM alignment LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (4 rows total)\n\n8. -- CONNECTIVITY LEMMA: Verify the join path from superhero to publisher by checking sample IDs on the hero side.\n   SELECT DISTINCT publisher_id FROM superhero LIMIT 5\n   Columns: publisher_id\n   [13]\n   [3]\n   [4]\n   ... (5 rows total)\n\n9. -- CONNECTIVITY LEMMA: Verify the join path from superhero to publisher by checking sample IDs on the publisher side.\n   SELECT DISTINCT id FROM publisher LIMIT 5\n   Columns: id\n   [1]\n   [2]\n   [3]\n   ... (5 rows total)\n\n10. -- SCOPE PROOF: Count superheroes filtered by the likely \"Neutral\" alignment (assuming 'Neutral' is the value found in query 1).\n   SELECT COUNT(*) FROM superhero WHERE alignment_id = (SELECT id FROM alignment WHERE alignment = 'Neutral') LIMIT 1\n   Columns: COUNT(*)\n   [28]\n\n11. -- SCOPE PROOF: Count superheroes published by Marvel Comics to ensure the filter is not a no-op.\n   SELECT COUNT(*) FROM superhero WHERE publisher_id = (SELECT id FROM publisher WHERE publisher_name = 'Marvel Comics') LIMIT 1\n   Columns: COUNT(*)\n   [387]\n\n12. -- SCOPE PROOF: Verify if any heroes have both the target alignment and are published by Marvel.\n   SELECT COUNT(*) FROM superhero WHERE alignment_id = (SELECT id FROM alignment WHERE alignment = 'Neutral') AND publisher_id = (SELECT id FROM publisher WHERE publisher_name = 'Marvel Comics') LIMIT 1\n   Columns: COUNT(*)\n   [10]\n\n13. -- ANNOTATION LEMMA: Check if there are any other columns in the alignment table that might provide more detail on \"self-interest\".\n   SELECT * FROM alignment LIMIT 20\n   Columns: id, alignment\n   [1, 'Good']\n   [2, 'Bad']\n   [3, 'Neutral']\n   ... (4 rows total)\n\n14. -- JOIN VERIFICATION: Ensure no duplicate superhero IDs exist that would inflate counts during joins.\n   SELECT COUNT(id), COUNT(DISTINCT id) FROM superhero LIMIT 1\n   Columns: COUNT(id), COUNT(DISTINCT id)\n   [750, 750]\n\n15. -- SCOPE CHECK: Check the distribution of publishers to see if Marvel is split across multiple entries (e.g., 'Marvel', 'Marvel Comics').\n   SELECT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel%' LIMIT 20\n   Columns: publisher_name\n   ['Marvel Comics']\n\n---\n\nWork through Phase 4 and Phase 5 now.",
+   "response": "## PHASE 4 — REVISED ASSUMPTIONS\n\n1. [OPEN-VALUE] The phrase \"act in their own self-interest or make decisions based on their own moral code\" is assumed to map to 'Neutral', but Query 1 and Query 13 indicate there are 4 total alignment values, and only three ('Good', 'Bad', 'Neutral') were explicitly listed; the fourth value remains unconfirmed.\n2. [CONFIRMED] The publisher name is exactly 'Marvel Comics', as proven by Query 15.\n3. [CONFIRMED] Percentage = (Target Alignment Count / Total Superhero Count) * 100, and no contrapositive constraints were found in the question to exclude any records from the denominator.\n4. [CONFIRMED] The primary identifier for superheroes is the `id` column in the `superhero` table, as proven by Query 14.\n5. [CONFIRMED] Null values exist for both `alignment_id` (6 rows) and `publisher_id` (3 rows), as proven by Query 4 and Query 5.\n\n## PHASE 4b — HYPOTHESIS REVIEW\n\nPARTIALLY — the original hypothesis holds in terms of table structure and join paths, but it requires a final confirmation of the alignment values. The query results revealed that only 28 superheroes are categorized as 'Neutral' out of a total population of 750, which is surprisingly low given the prevalence of Marvel characters (387). My updated hypothesis for the final SQL approach is to join the superhero table with the alignment and publisher tables using the paths `superhero.alignment_id = alignment.id` and `superhero.publisher_id = publisher.id`. I will filter by `publisher.publisher_name = 'Marvel Comics'` and an alignment value that must be confirmed as either 'Neutral' or a more specific string matching the \"self-interest\" description [OPEN-VALUE].\n\n## PHASE 5 — CONFIRMATION QUERIES\n\n1. -- RESOLVE [OPEN-VALUE]: Identify the fourth alignment value to ensure it is not the literal \"self-interest\" description.\n   SELECT alignment FROM alignment WHERE alignment NOT IN ('Good', 'Bad', 'Neutral') LIMIT 20;\n\n2. -- RESOLVE [OPEN-VALUE]: Check if \"self-interest\" exists as a literal string in the alignment table.\n   SELECT * FROM alignment WHERE alignment LIKE '%self-interest%' LIMIT 20;\n\n3. -- RESOLVE [OPEN-VALUE]: Check if \"moral code\" exists as a literal string in the alignment table.\n   SELECT * FROM alignment WHERE alignment LIKE '%moral code%' LIMIT 20;\n\n4. -- RESOLVE [WRONG-TABLE]: Search for semantic keywords in the attribute table to ensure they are not attributes instead of alignments.\n   SELECT * FROM attribute WHERE attribute_name LIKE '%interest%' LIMIT 20;\n\n5. -- RESOLVE [WRONG-TABLE]: Search for \"moral\" in the attribute table.\n   SELECT * FROM attribute WHERE attribute_name LIKE '%moral%' LIMIT 20;\n\n6. -- CONTRAPOSITIVE TEST: Verify if there are any superheroes with alignment 'Neutral' but no publisher assigned.\n   SELECT COUNT(*) FROM superhero WHERE alignment_id = (SELECT id FROM alignment WHERE alignment = 'Neutral') AND publisher_id IS NULL LIMIT 1;\n\n7. -- CONTRAPOSITIVE TEST: Verify if there are Marvel heroes who have no alignment assigned.\n   SELECT COUNT(*) FROM superhero WHERE publisher_id = (SELECT id FROM publisher WHERE publisher_name = 'Marvel Comics') AND alignment_id IS NULL LIMIT 1;\n\n8. -- RESOLVE [LIKE-VS-ENUM]: Check for any variations of the word \"Neutral\" in the alignment table to ensure exact match is best.\n   SELECT DISTINCT alignment FROM alignment WHERE alignment LIKE '%Neutral%' LIMIT 20;\n\n9. -- RESOLVE [LIKE-VS-ENUM]: Confirm no other publisher entries contain 'Marvel' besides 'Marvel Comics'.\n   SELECT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel%' AND publisher_name != 'Marvel Comics' LIMIT 20;\n\n10. -- DATA INTEGRITY: Check if any superheroes are linked to an alignment ID that does not exist in the alignment table.\n    SELECT COUNT(*) FROM superhero WHERE alignment_id NOT IN (SELECT id FROM alignment) LIMIT 1;\n\n11. -- DATA INTEGRITY: Check if any superheroes are linked to a publisher ID that does not exist in the publisher table.\n    SELECT COUNT(*) FROM superhero WHERE publisher_id NOT IN (SELECT id FROM publisher) LIMIT 1;\n\n12. -- SCOPE CHECK: Verify total count of alignment records to confirm exactly how many categories exist.\n    SELECT COUNT(*) FROM alignment LIMIT 1;\n\n13. -- SCOPE CHECK: Check for any empty strings in the alignment column.\n    SELECT COUNT(*) FROM alignment WHERE alignment = '' OR alignment IS NULL LIMIT 1;\n\n14. -- SCOPE CHECK: Check for any empty strings in the publisher_name column.\n    SELECT COUNT(*) FROM publisher WHERE publisher_name = '' OR publisher_name IS NULL LIMIT 1;\n\n15. -- CONNECTIVITY: Verify that every 'Neutral' alignment ID is actually used by at least one superhero.\n    SELECT COUNT(DISTINCT alignment_id) FROM superhero WHERE alignment_id = (SELECT id FROM alignment WHERE alignment = 'Neutral') LIMIT 1;",
+   "phase4": "1. [OPEN-VALUE] The phrase \"act in their own self-interest or make decisions based on their own moral code\" is assumed to map to 'Neutral', but Query 1 and Query 13 indicate there are 4 total alignment values, and only three ('Good', 'Bad', 'Neutral') were explicitly listed; the fourth value remains unconfirmed.\n2. [CONFIRMED] The publisher name is exactly 'Marvel Comics', as proven by Query 15.\n3. [CONFIRMED] Percentage = (Target Alignment Count / Total Superhero Count) * 100, and no contrapositive constraints were found in the question to exclude any records from the denominator.\n4. [CONFIRMED] The primary identifier for superheroes is the `id` column in the `superhero` table, as proven by Query 14.\n5. [CONFIRMED] Null values exist for both `alignment_id` (6 rows) and `publisher_id` (3 rows), as proven by Query 4 and Query 5.",
+   "phase4b": "PARTIALLY — the original hypothesis holds in terms of table structure and join paths, but it requires a final confirmation of the alignment values. The query results revealed that only 28 superheroes are categorized as 'Neutral' out of a total population of 750, which is surprisingly low given the prevalence of Marvel characters (387). My updated hypothesis for the final SQL approach is to join the superhero table with the alignment and publisher tables using the paths `superhero.alignment_id = alignment.id` and `superhero.publisher_id = publisher.id`. I will filter by `publisher.publisher_name = 'Marvel Comics'` and an alignment value that must be confirmed as either 'Neutral' or a more specific string matching the \"self-interest\" description [OPEN-VALUE].",
+   "queries": [
+    {
+     "n": "1",
+     "comment": "RESOLVE [OPEN-VALUE]: Identify the fourth alignment value to ensure it is not the literal \"self-interest\" description.",
+     "sql": "SELECT alignment FROM alignment WHERE alignment NOT IN ('Good', 'Bad', 'Neutral') LIMIT 20",
+     "status": "success",
+     "columns": [
+      "alignment"
+     ],
+     "head": [
+      [
+       "N/A"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "2",
+     "comment": "RESOLVE [OPEN-VALUE]: Check if \"self-interest\" exists as a literal string in the alignment table.",
+     "sql": "SELECT * FROM alignment WHERE alignment LIKE '%self-interest%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "id",
+      "alignment"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "3",
+     "comment": "RESOLVE [OPEN-VALUE]: Check if \"moral code\" exists as a literal string in the alignment table.",
+     "sql": "SELECT * FROM alignment WHERE alignment LIKE '%moral code%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "id",
+      "alignment"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "4",
+     "comment": "RESOLVE [WRONG-TABLE]: Search for semantic keywords in the attribute table to ensure they are not attributes instead of alignments.",
+     "sql": "SELECT * FROM attribute WHERE attribute_name LIKE '%interest%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "id",
+      "attribute_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "5",
+     "comment": "RESOLVE [WRONG-TABLE]: Search for \"moral\" in the attribute table.",
+     "sql": "SELECT * FROM attribute WHERE attribute_name LIKE '%moral%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "id",
+      "attribute_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "6",
+     "comment": "CONTRAPOSITIVE TEST: Verify if there are any superheroes with alignment 'Neutral' but no publisher assigned.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE alignment_id = (SELECT id FROM alignment WHERE alignment = 'Neutral') AND publisher_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "7",
+     "comment": "CONTRAPOSITIVE TEST: Verify if there are Marvel heroes who have no alignment assigned.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id = (SELECT id FROM publisher WHERE publisher_name = 'Marvel Comics') AND alignment_id IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       3
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "8",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Check for any variations of the word \"Neutral\" in the alignment table to ensure exact match is best.",
+     "sql": "SELECT DISTINCT alignment FROM alignment WHERE alignment LIKE '%Neutral%' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "alignment"
+     ],
+     "head": [
+      [
+       "Neutral"
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "9",
+     "comment": "RESOLVE [LIKE-VS-ENUM]: Confirm no other publisher entries contain 'Marvel' besides 'Marvel Comics'.",
+     "sql": "SELECT publisher_name FROM publisher WHERE publisher_name LIKE '%Marvel%' AND publisher_name != 'Marvel Comics' LIMIT 20",
+     "status": "success",
+     "columns": [
+      "publisher_name"
+     ],
+     "head": [],
+     "row_count": 0,
+     "error": null
+    },
+    {
+     "n": "10",
+     "comment": "DATA INTEGRITY: Check if any superheroes are linked to an alignment ID that does not exist in the alignment table.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE alignment_id NOT IN (SELECT id FROM alignment) LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "11",
+     "comment": "DATA INTEGRITY: Check if any superheroes are linked to a publisher ID that does not exist in the publisher table.",
+     "sql": "SELECT COUNT(*) FROM superhero WHERE publisher_id NOT IN (SELECT id FROM publisher) LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "12",
+     "comment": "SCOPE CHECK: Verify total count of alignment records to confirm exactly how many categories exist.",
+     "sql": "SELECT COUNT(*) FROM alignment LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       4
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "13",
+     "comment": "SCOPE CHECK: Check for any empty strings in the alignment column.",
+     "sql": "SELECT COUNT(*) FROM alignment WHERE alignment = '' OR alignment IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       0
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "14",
+     "comment": "SCOPE CHECK: Check for any empty strings in the publisher_name column.",
+     "sql": "SELECT COUNT(*) FROM publisher WHERE publisher_name = '' OR publisher_name IS NULL LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(*)"
+     ],
+     "head": [
+      [
+       1
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    },
+    {
+     "n": "15",
+     "comment": "CONNECTIVITY: Verify that every 'Neutral' alignment ID is actually used by at least one superhero.",
+     "sql": "SELECT COUNT(DISTINCT alignment_id) FROM superhero WHERE alignment_id = (SELECT id FROM alignment WHERE alignment = 'Neutral') LIMIT 1",
+     "status": "success",
+     "columns": [
+      "COUNT(DISTINCT alignment_id)"
+     ],
+     "head": [
+      [
+       1
+      ]
+     ],
+     "row_count": 1,
+     "error": null
+    }
+   ],
+   "n_queries": 15,
+   "n_success": 15
+  },
+  "stage3": {
+   "model": "google/gemma-4-31b",
+   "system_prompt": "\nYou are the director. You are reviewing the work of a junior analyst who investigated a client\nquestion by running SQL queries against the actual database.\n\nYour analyst is good but not infallible. They may have explored the right tables or the wrong ones.\nWhat they give you is raw data from the database — what columns exist, what values appeared, which\njoins worked, which failed. Your job is to use that evidence to write the final SQL.\n\nRules:\n  1. Use the analyst's query results as your evidence base. Column names, table names, join keys,\n     and filter values from PASSED queries are confirmed to exist in the database — use them exactly\n     as they appeared. Queries that FAILED with \"no such column: X\" confirm that X does not exist.\n  2. The analyst may have queried the wrong table or missed a relevant one. Consider all tables\n     the analyst touched, but also re-read the schema to check if a better path exists.\n  3. Write 5 candidates. Each candidate is your best complete answer under a different\n     interpretation of what the question is asking. The interpretations should differ in\n     meaningful ways: which tables to query, which columns to SELECT, which filters to apply,\n     how to aggregate, or what the question fundamentally means.\n\n       C1 — your primary interpretation: the answer you think is most likely correct based on\n             the question text, evidence, and analyst findings. This should be a complete,\n             production-quality query.\n       C2 — second interpretation: a structurally different reading. Perhaps a different table,\n             a different join path, or a different understanding of which column answers the\n             question (e.g., returning an ID instead of a name, or COUNT instead of a list).\n       C3 — third interpretation: another distinct reading. Could differ in aggregation logic,\n             filter scope, or SELECT shape (e.g., including the metric alongside the result).\n       C4 — fourth interpretation: explores a less obvious reading. Different grouping, an\n             additional condition implied by context, or a different column that could answer\n             the same question.\n       C5 — fifth interpretation, most elaborate: if the question could require comparing a\n             value to an aggregate (average, threshold, rank), use Nested Isolation here:\n               Inner query: compute the aggregate (AVG, MAX, COUNT, etc.)\n               Outer query: filter or join against that aggregate result\n             Pattern: SELECT col FROM t WHERE val > (SELECT AVG(val) FROM t)\n             If no aggregate comparison applies, use the most structurally different approach\n             you can justify.\n\n     Each candidate must be a complete, standalone, executable query — not a fragment or\n     simplification. Five variations of the same WHERE clause with minor tweaks is not five\n     interpretations.\n  4. Each candidate must be a complete, standalone, executable SQL query.\n  5. Different interpretations may reasonably differ in SELECT shape. For example, one\n     interpretation might return only COUNT(*), another might return COUNT(*) with the GROUP BY\n     column, and another might return the actual rows. Let each interpretation dictate its own\n     SELECT — do not artificially restrict columns across all five candidates.\n  6. Use LIMIT only when the question asks for a specific number of results (\"top 3\", \"the one\n     with the highest\"). If the question asks for a list without a count, do not use LIMIT.\n  7. You may use window functions (RANK, ROW_NUMBER, etc.) when the question requires ranking\n     within a group or ordering within a partition.\n\n  Proof-by-Cases principle:\n    C1-C5 must represent genuinely different interpretations of the question. If the correct\n    answer exists, at least one interpretation MUST capture it. Each must be structurally\n    distinct — different tables, joins, groupings, SELECT columns, or filter logic.\n\n  Exclusion Principle:\n    Every element in your SQL must be justified by either:\n      (a) the question text explicitly requiring it, or\n      (b) a PASSED query from the analyst's work confirming it exists and is relevant.\n    Do not add columns \"for context\", filters \"for safety\" (IS NOT NULL, status checks),\n    or joins \"just in case\". Unjustified additions are unproven conjectures — they narrow\n    or widen the result set beyond what was asked and cause failures.\n\n  Evidence hierarchy:\n    - PASSED queries with non-zero rows: proven facts. Use the exact column names, table\n      names, and values as they appeared.\n    - FAILED queries (errors): proven non-existence. The column or table does NOT exist\n      in that form. Do not use it.\n    - Zero-row PASSED queries: the filter combination is valid syntax but matches nothing.\n      Consider whether the filter is too restrictive.\n    - [OPEN-VALUE] / [WRONG-TABLE] tags from the analyst: unresolved conjectures. Prefer\n      alternatives that were actually confirmed.\n\nSQLite rules — non-negotiable:\n  - Column names with spaces or special characters MUST be double-quoted: \"Order Date\"\n  - Every query must begin with SELECT. Never use WITH ... AS (CTEs).\n  - Use whatever SQL structure best serves each interpretation: subqueries, window functions,\n    derived tables, or flat SELECT/JOIN/GROUP BY. The only constraint is correctness.\n  - Any query that joins two or more tables MUST assign a short alias to every table\n    (e.g. FROM movies m JOIN ratings r ON m.movie_id = r.movie_id) and MUST qualify every\n    column reference with its alias (e.g. m.movie_title, not just movie_title). Unqualified\n    column references in multi-table queries are ambiguous and will cause runtime errors.\n\nOutput format:\n## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: [what this reading assumes about the question]\nSELECT t1.col FROM t1 JOIN t2 ON t1.id = t2.fk WHERE t1.filter = value\n\n2. -- Second interpretation: [how this differs from C1]\nSELECT t1.id FROM t1 WHERE t1.different_filter = value\n\n3. -- Third interpretation: [what this captures that C1-C2 miss]\nSELECT t1.col, COUNT(*) FROM t1 GROUP BY t1.col\n\n4. -- Fourth interpretation: [alternative approach]\nSELECT t1.col FROM t1 JOIN t3 ON t1.id = t3.fk WHERE t3.filter = value\n\n5. -- Fifth interpretation: [most elaborate or aggregate-comparison approach]\nSELECT t1.col FROM t1 WHERE t1.val > (SELECT AVG(t2.val) FROM t1 t2)\n\nFormat rules:\n  - Numbered 1 through 5 exactly.\n  - Candidate 1 MUST start with \"1. --\" on its own line — never output the first candidate\n    as raw unnumbered SQL.\n  - Comment on same line as the number, starting with --.\n  - SQL starts on the next line, beginning with SELECT.\n  - Blank line between candidates.\n  - No markdown code fences. No bold. No extra headers.\n",
+   "user_prompt": "Question: What is the percentage of superheroes who act in their own self-interest or make decisions based on their own moral code? Indicate how many of the said superheroes were published by Marvel Comics.\n\nDatabase: superhero\n\n---\nANALYST WORK PRODUCT\n\nStage 1 — What was checked and what was found:\n1. Checked: EXISTENCE LEMMA: Identify all possible alignment values to find which one matches \"self-interest or own moral code\".\n   Result: alignment: Good\n   (4 rows total)\n\n2. Checked: EXISTENCE LEMMA: Confirm the exact string used for Marvel Comics in the publisher table.\n   Result: publisher_name: \n   (20 rows total)\n\n3. Checked: AXIOMATIC NEUTRALITY: Establish the total baseline count of all superheroes without any filters.\n   Result: COUNT(*): 750\n\n4. Checked: COLUMN SUITABILITY PROOF: Check for nulls in alignment_id to see if some heroes lack an alignment.\n   Result: nulls: 6 | total: 750\n\n5. Checked: COLUMN SUITABILITY PROOF: Check for nulls in publisher_id to see if some heroes lack a publisher.\n   Result: nulls: 3 | total: 750\n\n6. Checked: CONNECTIVITY LEMMA: Verify the join path from superhero to alignment by checking sample IDs on the hero side.\n   Result: alignment_id: 1\n   (4 rows total)\n\n7. Checked: CONNECTIVITY LEMMA: Verify the join path from superhero to alignment by checking sample IDs on the alignment side.\n   Result: id: 1\n   (4 rows total)\n\n8. Checked: CONNECTIVITY LEMMA: Verify the join path from superhero to publisher by checking sample IDs on the hero side.\n   Result: publisher_id: 13\n   (5 rows total)\n\n9. Checked: CONNECTIVITY LEMMA: Verify the join path from superhero to publisher by checking sample IDs on the publisher side.\n   Result: id: 1\n   (5 rows total)\n\n10. Checked: SCOPE PROOF: Count superheroes filtered by the likely \"Neutral\" alignment (assuming 'Neutral' is the value found in query 1).\n   Result: COUNT(*): 28\n\n11. Checked: SCOPE PROOF: Count superheroes published by Marvel Comics to ensure the filter is not a no-op.\n   Result: COUNT(*): 387\n\n12. Checked: SCOPE PROOF: Verify if any heroes have both the target alignment and are published by Marvel.\n   Result: COUNT(*): 10\n\n13. Checked: ANNOTATION LEMMA: Check if there are any other columns in the alignment table that might provide more detail on \"self-interest\".\n   Result: id: 1 | alignment: Good\n   (4 rows total)\n\n14. Checked: JOIN VERIFICATION: Ensure no duplicate superhero IDs exist that would inflate counts during joins.\n   Result: COUNT(id): 750 | COUNT(DISTINCT id): 750\n\n15. Checked: SCOPE CHECK: Check the distribution of publishers to see if Marvel is split across multiple entries (e.g., 'Marvel', 'Marvel Comics').\n   Result: publisher_name: Marvel Comics\n\n\nStage 2 — Hypothesis verdict (Phase 4):\n1. [OPEN-VALUE] The phrase \"act in their own self-interest or make decisions based on their own moral code\" is assumed to map to 'Neutral', but Query 1 and Query 13 indicate there are 4 total alignment values, and only three ('Good', 'Bad', 'Neutral') were explicitly listed; the fourth value remains unconfirmed.\n2. [CONFIRMED] The publisher name is exactly 'Marvel Comics', as proven by Query 15.\n3. [CONFIRMED] Percentage = (Target Alignment Count / Total Superhero Count) * 100, and no contrapositive constraints were found in the question to exclude any records from the denominator.\n4. [CONFIRMED] The primary identifier for superheroes is the `id` column in the `superhero` table, as proven by Query 14.\n5. [CONFIRMED] Null values exist for both `alignment_id` (6 rows) and `publisher_id` (3 rows), as proven by Query 4 and Query 5.\n\nStage 2 — Winning hypothesis (Phase 4b):\nPARTIALLY — the original hypothesis holds in terms of table structure and join paths, but it requires a final confirmation of the alignment values. The query results revealed that only 28 superheroes are categorized as 'Neutral' out of a total population of 750, which is surprisingly low given the prevalence of Marvel characters (387). My updated hypothesis for the final SQL approach is to join the superhero table with the alignment and publisher tables using the paths `superhero.alignment_id = alignment.id` and `superhero.publisher_id = publisher.id`. I will filter by `publisher.publisher_name = 'Marvel Comics'` and an alignment value that must be confirmed as either 'Neutral' or a more specific string matching the \"self-interest\" description [OPEN-VALUE].\n\nStage 2 — Confirmation checks and what was found:\n1. Checked: RESOLVE [OPEN-VALUE]: Identify the fourth alignment value to ensure it is not the literal \"self-interest\" description.\n   Result: alignment: N/A\n\n2. Checked: RESOLVE [OPEN-VALUE]: Check if \"self-interest\" exists as a literal string in the alignment table.\n   Result: (no rows returned)\n\n3. Checked: RESOLVE [OPEN-VALUE]: Check if \"moral code\" exists as a literal string in the alignment table.\n   Result: (no rows returned)\n\n4. Checked: RESOLVE [WRONG-TABLE]: Search for semantic keywords in the attribute table to ensure they are not attributes instead of alignments.\n   Result: (no rows returned)\n\n5. Checked: RESOLVE [WRONG-TABLE]: Search for \"moral\" in the attribute table.\n   Result: (no rows returned)\n\n6. Checked: CONTRAPOSITIVE TEST: Verify if there are any superheroes with alignment 'Neutral' but no publisher assigned.\n   Result: COUNT(*): 0\n\n7. Checked: CONTRAPOSITIVE TEST: Verify if there are Marvel heroes who have no alignment assigned.\n   Result: COUNT(*): 3\n\n8. Checked: RESOLVE [LIKE-VS-ENUM]: Check for any variations of the word \"Neutral\" in the alignment table to ensure exact match is best.\n   Result: alignment: Neutral\n\n9. Checked: RESOLVE [LIKE-VS-ENUM]: Confirm no other publisher entries contain 'Marvel' besides 'Marvel Comics'.\n   Result: (no rows returned)\n\n10. Checked: DATA INTEGRITY: Check if any superheroes are linked to an alignment ID that does not exist in the alignment table.\n   Result: COUNT(*): 0\n\n11. Checked: DATA INTEGRITY: Check if any superheroes are linked to a publisher ID that does not exist in the publisher table.\n   Result: COUNT(*): 0\n\n12. Checked: SCOPE CHECK: Verify total count of alignment records to confirm exactly how many categories exist.\n   Result: COUNT(*): 4\n\n13. Checked: SCOPE CHECK: Check for any empty strings in the alignment column.\n   Result: COUNT(*): 0\n\n14. Checked: SCOPE CHECK: Check for any empty strings in the publisher_name column.\n   Result: COUNT(*): 1\n\n15. Checked: CONNECTIVITY: Verify that every 'Neutral' alignment ID is actually used by at least one superhero.\n   Result: COUNT(DISTINCT alignment_id): 1\n\n\n---\nWrite 5 candidate SQL queries sweeping from the least to the most work required to answer the question.",
+   "response": "## CANDIDATE SQL QUERIES\n\n1. -- Primary interpretation: Calculate the percentage of all superheroes who are 'Neutral' and the count of those specific Neutral superheroes published by 'Marvel Comics'.\nSELECT (COUNT(CASE WHEN a.alignment = 'Neutral' THEN 1 END) * 100.0 / COUNT(s.id)), COUNT(CASE WHEN a.alignment = 'Neutral' AND p.publisher_name = 'Marvel Comics' THEN 1 END) FROM superhero s LEFT JOIN alignment a ON s.alignment_id = a.id LEFT JOIN publisher p ON s.publisher_id = p.id\n\n2. -- Second interpretation: Assume the percentage should be calculated only against superheroes who have an assigned alignment, excluding those with NULL alignment_id.\nSELECT (COUNT(s.id) * 100.0 / (SELECT COUNT(*) FROM superhero WHERE alignment_id IS NOT NULL)), SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) FROM superhero s JOIN alignment a ON s.alignment_id = a.id JOIN publisher p ON s.publisher_id = p.id WHERE a.alignment = 'Neutral'\n\n3. -- Third interpretation: Assume \"act in their own self-interest or make decisions based on their own moral code\" includes both 'Neutral' and 'N/A' alignment values.\nSELECT (COUNT(s.id) * 100.0 / (SELECT COUNT(*) FROM superhero)), SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) FROM superhero s JOIN alignment a ON s.alignment_id = a.id JOIN publisher p ON s.publisher_id = p.id WHERE a.alignment IN ('Neutral', 'N/A')\n\n4. -- Fourth interpretation: Focus on the intersection of Marvel and Neutral, returning the count of these heroes and what percentage they represent relative to the entire superhero population.\nSELECT COUNT(s.id), (COUNT(s.id) * 100.0 / (SELECT COUNT(*) FROM superhero)) FROM superhero s JOIN alignment a ON s.alignment_id = a.id JOIN publisher p ON s.publisher_id = p.id WHERE a.alignment = 'Neutral' AND p.publisher_name = 'Marvel Comics'\n\n5. -- Fifth interpretation: Use a derived table to isolate the target population (Neutrals) first, then join with publishers and calculate the percentage against the total population using a nested subquery.\nSELECT (COUNT(t.id) * 100.0 / (SELECT COUNT(*) FROM superhero)), SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) FROM (SELECT s.id, s.publisher_id FROM superhero s JOIN alignment a ON s.alignment_id = a.id WHERE a.alignment = 'Neutral') t LEFT JOIN publisher p ON t.publisher_id = p.id",
+   "candidates": [
+    {
+     "n": 1,
+     "comment": "Primary interpretation: Calculate the percentage of all superheroes who are 'Neutral' and the count of those specific Neutral superheroes published by 'Marvel Comics'.",
+     "sql": "SELECT (COUNT(CASE WHEN a.alignment = 'Neutral' THEN 1 END) * 100.0 / COUNT(s.id)), COUNT(CASE WHEN a.alignment = 'Neutral' AND p.publisher_name = 'Marvel Comics' THEN 1 END) FROM superhero s LEFT JOIN alignment a ON s.alignment_id = a.id LEFT JOIN publisher p ON s.publisher_id = p.id",
+     "status": "success",
+     "columns": [
+      "(COUNT(CASE WHEN a.alignment = 'Neutral' THEN 1 END) * 100.0 / COUNT(s.id))",
+      "COUNT(CASE WHEN a.alignment = 'Neutral' AND p.publisher_name = 'Marvel Comics' THEN 1 END)"
+     ],
+     "rows": [
+      [
+       3.7333333333333334,
+       10
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 2,
+     "comment": "Second interpretation: Assume the percentage should be calculated only against superheroes who have an assigned alignment, excluding those with NULL alignment_id.",
+     "sql": "SELECT (COUNT(s.id) * 100.0 / (SELECT COUNT(*) FROM superhero WHERE alignment_id IS NOT NULL)), SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) FROM superhero s JOIN alignment a ON s.alignment_id = a.id JOIN publisher p ON s.publisher_id = p.id WHERE a.alignment = 'Neutral'",
+     "status": "success",
+     "columns": [
+      "(COUNT(s.id) * 100.0 / (SELECT COUNT(*) FROM superhero WHERE alignment_id IS NOT NULL))",
+      "SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END)"
+     ],
+     "rows": [
+      [
+       3.763440860215054,
+       10
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 3,
+     "comment": "Third interpretation: Assume \"act in their own self-interest or make decisions based on their own moral code\" includes both 'Neutral' and 'N/A' alignment values.",
+     "sql": "SELECT (COUNT(s.id) * 100.0 / (SELECT COUNT(*) FROM superhero)), SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) FROM superhero s JOIN alignment a ON s.alignment_id = a.id JOIN publisher p ON s.publisher_id = p.id WHERE a.alignment IN ('Neutral', 'N/A')",
+     "status": "success",
+     "columns": [
+      "(COUNT(s.id) * 100.0 / (SELECT COUNT(*) FROM superhero))",
+      "SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END)"
+     ],
+     "rows": [
+      [
+       3.7333333333333334,
+       10
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 4,
+     "comment": "Fourth interpretation: Focus on the intersection of Marvel and Neutral, returning the count of these heroes and what percentage they represent relative to the entire superhero population.",
+     "sql": "SELECT COUNT(s.id), (COUNT(s.id) * 100.0 / (SELECT COUNT(*) FROM superhero)) FROM superhero s JOIN alignment a ON s.alignment_id = a.id JOIN publisher p ON s.publisher_id = p.id WHERE a.alignment = 'Neutral' AND p.publisher_name = 'Marvel Comics'",
+     "status": "success",
+     "columns": [
+      "COUNT(s.id)",
+      "(COUNT(s.id) * 100.0 / (SELECT COUNT(*) FROM superhero))"
+     ],
+     "rows": [
+      [
+       10,
+       1.3333333333333333
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    },
+    {
+     "n": 5,
+     "comment": "Fifth interpretation: Use a derived table to isolate the target population (Neutrals) first, then join with publishers and calculate the percentage against the total population using a nested subquery.",
+     "sql": "SELECT (COUNT(t.id) * 100.0 / (SELECT COUNT(*) FROM superhero)), SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) FROM (SELECT s.id, s.publisher_id FROM superhero s JOIN alignment a ON s.alignment_id = a.id WHERE a.alignment = 'Neutral') t LEFT JOIN publisher p ON t.publisher_id = p.id",
+     "status": "success",
+     "columns": [
+      "(COUNT(t.id) * 100.0 / (SELECT COUNT(*) FROM superhero))",
+      "SUM(CASE WHEN p.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END)"
+     ],
+     "rows": [
+      [
+       3.7333333333333334,
+       10
+      ]
+     ],
+     "row_count": 1,
+     "truncated": false,
+     "error": null,
+     "matches_gold": false
+    }
+   ],
+   "chosen": 1,
+   "gold_result": {
+    "columns": [
+     "(CAST(COUNT(*) AS REAL) * 100 / (SELECT COUNT(*) FROM superhero))",
+     "CAST(SUM(CASE WHEN T2.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) AS REAL)"
+    ],
+    "rows": [
+     [
+      28.266666666666666,
+      118.0
+     ]
+    ],
+    "row_count": 1
+   }
+  }
+ },
+ "noev_elapsed_s": 650.7,
+ "noev_error": null
+}

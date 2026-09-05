@@ -21,6 +21,10 @@ STAGE3_MODEL = os.environ.get("LLM_STAGE3_MODEL", "llama-3.3-70b-versatile")
 MAX_TOKENS = 8192
 TEMPERATURE = 0.3
 
+# Local inference (e.g. LM Studio) is much slower than Groq's hosted hardware,
+# especially with heavy <think> reasoning — override via env when needed.
+DEFAULT_REQUEST_TIMEOUT = int(os.environ.get("LLM_REQUEST_TIMEOUT", "300"))
+
 
 class LLMError(Exception):
     pass
@@ -34,7 +38,7 @@ class RateLimitedError(LLMError):
 
 def call_llm(system_prompt: str, user_prompt: str, model: str, api_key: str,
              max_tokens: int = MAX_TOKENS, temperature: float = TEMPERATURE,
-             max_retries: int = 3, request_timeout: int = 300) -> str:
+             max_retries: int = 3, request_timeout: int = DEFAULT_REQUEST_TIMEOUT) -> str:
     """Single chat completion. Retries on 429/5xx with backoff. Returns raw content."""
     url = f"{GROQ_BASE_URL}/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}",
