@@ -4,7 +4,7 @@
 
 Most text-to-SQL systems show an LLM the schema and hope. This one doesn't guess: it **explores the real database first**, verifies every assumption with actual SQL, and only then writes the answer — five candidate answers, in fact, each executed live.
 
-🚀 **[Open the showcase](https://huggingface.co/spaces/)** *(link goes live after deploy — see below)* — a gallery of recorded runs. Every question shows five answers side by side: a one-shot model call **no hint** / **with hint**, the 3-stage pipeline run **no hint** / **with hint**, and the **human reference (gold) query** — all executed against the live database. Then step through the full pipeline trace: every stage, every query, the verbatim prompts. No API key, nothing to configure.
+🚀 **[Open the showcase](https://agentic-text-to-sql-bqmgq7o3p6qshae8zr2osf.streamlit.app)** — a gallery of recorded runs. Every question shows five answers side by side: a one-shot model call **no hint** / **with hint**, the 3-stage pipeline run **no hint** / **with hint**, and the **human reference (gold) query** — all executed against the live database. Then step through the full pipeline trace: every stage, every query, the verbatim prompts. No API key, nothing to configure.
 
 ![pipeline architecture](assets/architecture.svg)
 
